@@ -75,17 +75,6 @@ export interface Asset {
   height: number;
 }
 
-export interface FrameSound {
-  /** 0~1 정규화된 음량 */
-  level: number;
-  /** 검출된 주파수 (Hz), 무음이거나 불명확하면 null */
-  freq: number | null;
-  /** MIDI 노트 번호 */
-  midi: number | null;
-  /** 검출 신뢰도 0~1 */
-  clarity: number;
-}
-
 export interface AudioTrack {
   name: string;
   blob: Blob;

@@ -4,7 +4,8 @@ import {
   PanelRight, CopyPlus, Plus, Trash2, Film,
 } from 'lucide-react';
 import { useEditor } from '../store/editor';
-import { downloadBlob, pickFile, safeFileName } from '../lib/id';
+import { safeFileName } from '../lib/id';
+import { baseName, fileFilter, openFiles, saveBlob } from '../lib/platform';
 import { importFiles, pasteFromSystemClipboard } from '../lib/importers';
 import { exportProjectFile } from '../lib/storage';
 
@@ -75,13 +76,14 @@ export function TopBar({ onSave, onHome, saving }: { onSave: () => void; onHome:
             <button
               onClick={async () => {
                 close();
-                downloadBlob(await exportProjectFile(useEditor.getState().project!), `${safeFileName(p.name)}.ffanim`);
+                const path = await saveBlob(await exportProjectFile(useEditor.getState().project!), `${safeFileName(p.name)}.ffanim`, fileFilter('FrameFlow 프로젝트', 'ffanim'));
+                if (path) st.toast(`'${baseName(path)}' 파일로 저장했어요`, 'success');
               }}
             >
               <FileDown size={15} /> 프로젝트 파일로 저장 (.ffanim)
             </button>
             <hr />
-            <button onClick={async () => { close(); importFiles(await pickFile('image/*', true)); }}>
+            <button onClick={async () => { close(); importFiles(await openFiles('image', true)); }}>
               <ImagePlus size={15} /> 이미지 가져오기
             </button>
             <button
@@ -92,7 +94,7 @@ export function TopBar({ onSave, onHome, saving }: { onSave: () => void; onHome:
             >
               <ClipboardPaste size={15} /> 클립보드 이미지 붙여넣기 <span className="kbd">Ctrl V</span>
             </button>
-            <button onClick={async () => { close(); importFiles(await pickFile('audio/*')); }}>
+            <button onClick={async () => { close(); importFiles(await openFiles('audio')); }}>
               <Music size={15} /> 음악 가져오기
             </button>
             <hr />

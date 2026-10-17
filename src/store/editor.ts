@@ -3,7 +3,6 @@ import type { Asset, AudioTrack, Cel, Frame, Layer, LayerKind, Project, Tool, Tr
 import { uid, clamp } from '../lib/id';
 import { createCanvas, ctx2d } from '../lib/canvas';
 import { DEFAULT_T, drawCel } from '../lib/render';
-import type { NoteNaming } from '../lib/audio';
 
 export const LAYER_COLORS = ['#8b7bff', '#ff6fb5', '#45b8ff', '#5ee38c', '#ffb340', '#ff5d73', '#3fd6c6', '#c06bff'];
 
@@ -77,7 +76,6 @@ export interface EditorState {
   playing: boolean;
   loop: boolean;
   scrubSound: boolean;
-  noteNaming: NoteNaming;
   timelineCol: number;
   clipboard: CelClipboard | null;
   toasts: Toast[];
@@ -233,7 +231,6 @@ export const useEditor = create<EditorState>((set, get) => ({
   playing: false,
   loop: true,
   scrubSound: true,
-  noteNaming: 'ko',
   timelineCol: 56,
   clipboard: null,
   toasts: [],
@@ -806,7 +803,7 @@ export function currentCel(s: EditorState): Cel | undefined {
 /* ---------------------------------------------------------------- 환경 설정 저장 */
 
 const PREF_KEYS = [
-  'onion', 'shape', 'grid', 'playSpeed', 'exposureMode', 'noteNaming', 'scrubSound', 'timelineCol', 'timelineH',
+  'onion', 'shape', 'grid', 'playSpeed', 'exposureMode', 'scrubSound', 'timelineCol', 'timelineH',
   'brush', 'eraser', 'fill', 'recentColors', 'loop',
 ] as const;
 const PREF_STORAGE = 'frameflow-prefs';

@@ -5,7 +5,7 @@ import { deleteProject, importProjectFile, listProjects, loadProject, renameProj
 import { makeProject, useEditor } from '../store/editor';
 import { NewProjectDialog } from './dialogs/ProjectDialogs';
 import { FpsDemo } from './FpsPicker';
-import { pickFile } from '../lib/id';
+import { isDesktop, openFiles } from '../lib/platform';
 import { Toasts } from './ui';
 
 function timeAgo(t: number) {
@@ -41,7 +41,7 @@ export function Home() {
   }, []);
 
   const openFile = async (file?: File) => {
-    const f = file ?? (await pickFile('.ffanim,application/octet-stream'))[0];
+    const f = file ?? (await openFiles('project'))[0];
     if (!f) return;
     setBusy(true);
     try {
@@ -83,7 +83,7 @@ export function Home() {
             FrameFlow
           </div>
           <span className="muted" style={{ fontSize: 12 }}>
-            브라우저에 자동 저장 · 설치 필요 없음
+            {isDesktop ? '작업은 자동으로 저장돼요 · 파일로 저장은 파일 메뉴에서' : '브라우저에 자동 저장 · 설치 필요 없음'}
           </span>
         </div>
 
@@ -95,8 +95,8 @@ export function Home() {
               <em>움직이게</em> 만드세요
             </h1>
             <p>
-              그림을 붙여넣고, 프레임을 복제하고, 조금씩 옮기면 애니메이션이 완성돼요. 음악을 넣으면 프레임마다 어떤 음이 나오는지도
-              보여드려요.
+              그림을 붙여넣고, 프레임을 복제하고, 조금씩 옮기면 애니메이션이 완성돼요. 음악을 넣으면 소리 크기를 보며 타이밍을 맞출 수
+              있어요.
             </p>
             <div className="hero-actions">
               <button className="action-card primary" onClick={() => setShowNew(true)}>
@@ -192,8 +192,8 @@ export function Home() {
           </div>
           <div className="feature">
             <Music className="ic" size={20} />
-            <b>프레임별 음 분석</b>
-            <span>음악을 넣으면 파형과 함께 각 프레임의 주요 음(도레미)과 음량을 보여줘요.</span>
+            <b>음악 넣기</b>
+            <span>음악을 넣으면 타임라인 아래에 소리 크기가 파형으로 보여서 박자에 맞춰 그릴 수 있어요.</span>
           </div>
           <div className="feature">
             <Film className="ic" size={20} />

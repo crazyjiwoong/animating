@@ -787,7 +787,7 @@ input[type='range']::-moz-range-thumb {
   left: auto;
   right: 0;
 }
-.dropdown button {
+.dropdown > button {
   width: 100%;
   display: flex;
   align-items: center;
@@ -800,13 +800,13 @@ input[type='range']::-moz-range-thumb {
   color: var(--text);
   font-size: 13px;
 }
-.dropdown button:hover {
+.dropdown > button:hover {
   background: var(--panel-3);
 }
-.dropdown button .kbd {
+.dropdown > button .kbd {
   margin-left: auto;
 }
-.dropdown button svg {
+.dropdown > button svg {
   color: var(--text-2);
 }
 .dropdown hr {
@@ -1276,27 +1276,6 @@ input[type='range']::-moz-range-thumb {
   white-space: nowrap;
   overflow: hidden;
 }
-.note-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 9px 3px 4px;
-  border-radius: 20px;
-  background: var(--bg-2);
-  border: 1px solid var(--line-2);
-  font-weight: 700;
-  color: var(--text);
-}
-.note-pill i {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  font-style: normal;
-  font-size: 10px;
-  color: #11131a;
-}
 .tl-scroll {
   flex: 1;
   overflow: auto;
@@ -1443,12 +1422,10 @@ input[type='range']::-moz-range-thumb {
   box-shadow: 0 0 12px rgba(139, 123, 255, 0.7);
 }
 .tl-row.audio {
-  height: 48px;
-}
-.tl-row.notes {
-  height: 30px;
+  height: 56px;
 }
 .audio-lane {
+  cursor: pointer;
   position: relative;
   flex: none;
   border-bottom: 1px solid var(--line);
@@ -1458,36 +1435,6 @@ input[type='range']::-moz-range-thumb {
   position: absolute;
   inset: 0;
   display: block;
-}
-.note-cell {
-  flex: none;
-  border-right: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
-  display: grid;
-  place-items: center;
-  font-size: 10.5px;
-  font-weight: 700;
-  cursor: pointer;
-  position: relative;
-  overflow: hidden;
-}
-.note-cell .lv {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  opacity: 0.25;
-}
-.note-cell b {
-  position: relative;
-  color: #10131a;
-  padding: 1px 4px;
-  border-radius: 4px;
-  font-size: 10px;
-  white-space: nowrap;
-}
-.note-cell.cur {
-  box-shadow: inset 0 0 0 2px var(--accent);
 }
 .add-audio {
   display: flex;
@@ -1987,21 +1934,14 @@ input[type='range']::-moz-range-thumb {
   font-weight: 600;
   box-shadow: var(--shadow);
 }
-.note-cell .beat {
-  position: absolute;
-  top: 2px;
-  left: 50%;
-  width: 6px;
-  height: 6px;
-  margin-left: -3px;
-  border-radius: 50%;
-  background: #ffd23f;
-  box-shadow: 0 0 6px rgba(255, 210, 63, 0.8);
-}
 .speed-sel {
   height: 26px;
   padding: 0 22px 0 8px;
   font-size: 12px;
   font-weight: 600;
   background-position: calc(100% - 12px) 50%, calc(100% - 7px) 50%;
+}
+.dropdown > button:disabled {
+  opacity: 0.4;
+  pointer-events: none;
 }

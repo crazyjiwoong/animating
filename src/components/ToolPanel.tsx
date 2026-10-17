@@ -1,5 +1,5 @@
 import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, FlipHorizontal2, FlipVertical2, RotateCcw, Crosshair, History, ImageUp, Slash, Square, Circle } from 'lucide-react';
-import { pickFile } from '../lib/id';
+import { openFiles } from '../lib/platform';
 import { replaceCurrentImage } from '../lib/importers';
 import { useEditor, currentCel, currentLayer, type BrushSettings } from '../store/editor';
 import { Slider, Toggle } from './ui';
@@ -137,7 +137,7 @@ function MoveProps() {
       <button
         className="btn sm"
         onClick={async () => {
-          const f = (await pickFile('image/*'))[0];
+          const f = (await openFiles('image'))[0];
           if (f) replaceCurrentImage(f);
         }}
         title="위치·크기는 그대로 두고 이 프레임의 그림만 바꿔요"

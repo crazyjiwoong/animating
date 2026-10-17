@@ -3,17 +3,14 @@ import { CopyPlus, Film, ArrowLeft, ArrowRight, Eraser, Trash2, SquarePlus, Move
 import { Modal, Stepper } from '../ui';
 import { useEditor, runAt } from '../../store/editor';
 import { renderThumb } from '../../lib/render';
-import { noteColor, noteName, formatTime } from '../../lib/audio';
-import { useFrameSounds } from '../Timeline';
+import { formatTime } from '../../lib/audio';
 
 export function FrameDialog({ index, onClose }: { index: number; onClose: () => void }) {
   const p = useEditor((s) => s.project)!;
-  const naming = useEditor((s) => s.noteNaming);
   const st = useEditor.getState();
   const [count, setCount] = useState(3);
   const [empty, setEmpty] = useState(1);
   const ref = useRef<HTMLCanvasElement>(null);
-  const sounds = useFrameSounds();
   const frame = p.frames[index];
   const [memo, setMemo] = useState(frame?.memo ?? '');
   const layerId = useEditor((s) => s.layerId);
@@ -28,7 +25,6 @@ export function FrameDialog({ index, onClose }: { index: number; onClose: () => 
 
   if (!frame) return null;
   const celCount = Object.keys(frame.cels).filter((k) => p.layers.some((l) => l.id === k)).length;
-  const snd = sounds?.[index];
   const after = p.frames.length - index - 1;
 
   return (
@@ -52,19 +48,6 @@ export function FrameDialog({ index, onClose }: { index: number; onClose: () => 
           <div>
             표시 시간 <b>{(1000 / p.fps).toFixed(1)}ms</b> ({p.fps}fps)
           </div>
-          {snd && (
-            <div className="row" style={{ gap: 6 }}>
-              이 프레임의 음
-              {snd.midi != null ? (
-                <span className="note-pill">
-                  <i style={{ background: noteColor(snd.midi) }}>♪</i>
-                  {noteName(snd.midi, naming)} <span className="muted">{snd.freq!.toFixed(0)}Hz</span>
-                </span>
-              ) : (
-                <b>{snd.level < 0.04 ? '무음' : '불분명'}</b>
-              )}
-            </div>
-          )}
           <input className="input" placeholder="메모 (예: 입 벌림, 발 착지)" value={memo} onChange={(e) => setMemo(e.target.value)} onBlur={() => memo !== (frame.memo ?? '') && st.setMemo(index, memo)} />
         </div>
       </div>

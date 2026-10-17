@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useEditor } from '../store/editor';
 import { useView } from '../store/view';
 import { saveProject } from '../lib/storage';
+import { desktop, isDesktop } from '../lib/platform';
 import { playAudioFrom, playFrameSlice, stopAudio } from '../lib/audio';
 import { importFiles, importImageBlob } from '../lib/importers';
 import { nudge } from '../lib/nudge';
@@ -108,8 +109,31 @@ export function Editor({ onExit }: { onExit: () => void }) {
     return () => clearInterval(id);
   }, [save]);
 
-  // 닫기 전 경고
+  // PC 앱: 창 제목 · 저장 안 된 변경 표시 · 닫을 때 저장
   useEffect(() => {
+    const upd = () => {
+      const s = useEditor.getState();
+      if (!s.project) return;
+      document.title = `${s.dirty ? '● ' : ''}${s.project.name} — FrameFlow`;
+      desktop?.setDirty(s.dirty);
+    };
+    upd();
+    const un = useEditor.subscribe((s, prev) => (s.dirty !== prev.dirty || s.project?.name !== prev.project?.name) && upd());
+    const off = desktop?.onSaveAndClose(async () => {
+      await save(true);
+      desktop?.closeNow();
+    });
+    return () => {
+      un();
+      off?.();
+      document.title = 'FrameFlow';
+      desktop?.setDirty(false);
+    };
+  }, [save]);
+
+  // 닫기 전 경고 (웹 전용 — PC 앱은 위에서 운영체제 대화상자로 묻는다)
+  useEffect(() => {
+    if (isDesktop) return;
     const h = (e: BeforeUnloadEvent) => {
       if (useEditor.getState().dirty) {
         e.preventDefault();

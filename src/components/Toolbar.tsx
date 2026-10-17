@@ -1,7 +1,7 @@
 import { Brush, Eraser, Shapes, Move, PaintBucket, Pipette, Hand, Undo2, Redo2, ImagePlus } from 'lucide-react';
 import type { Tool } from '../types';
 import { useEditor } from '../store/editor';
-import { pickFile } from '../lib/id';
+import { openFiles } from '../lib/platform';
 import { importFiles } from '../lib/importers';
 
 export const TOOLS: { id: Tool; icon: typeof Brush; label: string; key: string }[] = [
@@ -34,7 +34,7 @@ export function Toolbar() {
         </button>
       ))}
       <div className="sep" />
-      <button className="tool-btn" onClick={async () => importFiles(await pickFile('image/*', true))} aria-label="이미지 가져오기">
+      <button className="tool-btn" onClick={async () => importFiles(await openFiles('image', true))} aria-label="이미지 가져오기">
         <ImagePlus size={18} />
         <span className="tip">
           이미지 가져오기 <span className="kbd">Ctrl V</span>

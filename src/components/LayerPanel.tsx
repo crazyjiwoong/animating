@@ -4,7 +4,7 @@ import type { BlendMode, Layer } from '../types';
 import { useEditor, currentLayer } from '../store/editor';
 import { drawCel } from '../lib/render';
 import { ctx2d } from '../lib/canvas';
-import { pickFile } from '../lib/id';
+import { openFiles } from '../lib/platform';
 import { importFiles } from '../lib/importers';
 import { trackPointer } from '../lib/drag';
 
@@ -161,7 +161,7 @@ export function LayerPanel() {
       <div className="panel-head">
         레이어 <span className="muted" style={{ fontWeight: 500 }}>{layers.length}</span>
         <span className="grow" />
-        <button className="icon-btn sm" title="이미지 가져오기" onClick={async () => importFiles(await pickFile('image/*', true))}>
+        <button className="icon-btn sm" title="이미지 가져오기" onClick={async () => importFiles(await openFiles('image', true))}>
           <ImagePlus size={14} />
         </button>
         <button className="icon-btn sm" title="새 레이어" onClick={() => addLayer('raster')}>

@@ -3,6 +3,7 @@ import type { Project } from '../types';
 import { createCanvas, ctx2d, canvasToBlob } from './canvas';
 import { renderFrame } from './render';
 import { audioCtx, audioTimeAtFrame } from './audio';
+import { desktop } from './platform';
 
 export interface VideoFormat {
   id: string;
@@ -227,4 +228,54 @@ export async function exportPngSequence(p: Project, scale: number, transparent: 
   }
   // PNG 는 이미 압축돼 있으므로 저장만
   return new Blob([zipSync(files, { level: 0 }) as BlobPart], { type: 'application/zip' });
+}
+
+/**
+ * PC 앱 전용: 프레임을 한 장씩 ffmpeg 로 보내 H.264 MP4 / VP9 WebM 을 만든다.
+ * 실시간 녹화가 아니라서 프레임이 정확하고 보통 재생 시간보다 빠르다.
+ */
+export async function exportVideoNative(
+  p: Project,
+  format: 'mp4' | 'webm',
+  path: string,
+  opts: ExportOptions & { quality?: number },
+): Promise<void> {
+  if (!desktop) throw new Error('PC 앱에서만 쓸 수 있어요');
+  const w = even(p.width * opts.scale);
+  const h = even(p.height * opts.scale);
+  const canvas = createCanvas(w, h);
+  const ctx = ctx2d(canvas, { willReadFrequently: true });
+  const n = p.frames.length;
+  const total = n * Math.max(1, opts.loops);
+  const a = opts.withAudio && p.audio && !p.audio.muted ? p.audio : null;
+  const id = await desktop.video.start({
+    path,
+    format,
+    width: w,
+    height: h,
+    fps: p.fps,
+    frames: total,
+    loopFrames: n,
+    quality: opts.quality,
+    audio: a ? { name: a.name, data: await a.blob.arrayBuffer(), trim: a.trim, delay: a.startFrame / p.fps, volume: a.volume } : undefined,
+  });
+  try {
+    for (let i = 0; i < total; i++) {
+      if (opts.signal?.aborted) throw new DOMException('취소됨', 'AbortError');
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = opts.background;
+      ctx.fillRect(0, 0, w, h);
+      ctx.setTransform(w / p.width, 0, 0, h / p.height, 0, 0);
+      ctx.imageSmoothingQuality = 'high';
+      renderFrame(ctx, p, i % n, { fallbackBackground: opts.background });
+      await desktop.video.frame(id, ctx.getImageData(0, 0, w, h).data.buffer);
+      opts.onProgress?.((i + 1) / (total + 1));
+    }
+  } catch (e) {
+    await desktop.video.cancel(id);
+    throw e;
+  }
+  const r = await desktop.video.finish(id);
+  if (!r.ok) throw new Error(r.error ?? '동영상을 만들지 못했어요');
+  opts.onProgress?.(1);
 }

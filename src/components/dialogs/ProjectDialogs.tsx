@@ -133,7 +133,6 @@ function ViewSettings() {
   const flipView = useEditor((s) => s.flipView);
   const exposureMode = useEditor((s) => s.exposureMode);
   const scrub = useEditor((s) => s.scrubSound);
-  const naming = useEditor((s) => s.noteNaming);
   const set = useEditor((s) => s.set);
   const o = (patch: Partial<typeof onion>) => set({ onion: { ...onion, ...patch } });
   return (
@@ -167,10 +166,6 @@ function ViewSettings() {
           <Seg value={exposureMode} onChange={(exposureMode) => set({ exposureMode })} options={[{ value: 'ripple', label: '뒤 그림 밀기' }, { value: 'overwrite', label: '덮어쓰기' }]} />
         </div>
         <Toggle label="프레임 이동할 때 소리 듣기 (스크럽)" on={scrub} onChange={(scrubSound) => set({ scrubSound })} />
-        <div className="row" style={{ justifyContent: 'space-between' }}>
-          <span className="label">음 이름</span>
-          <Seg value={naming} onChange={(noteNaming) => set({ noteNaming })} options={[{ value: 'ko', label: '도레미' }, { value: 'en', label: 'CDE' }]} />
-        </div>
       </div>
       <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <b>캔버스 보기</b>
