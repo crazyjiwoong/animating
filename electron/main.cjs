@@ -1,4 +1,4 @@
-// FrameFlow 데스크톱 앱 — Electron 메인 프로세스
+// AMG (애니만들기힘들어서직접만듬) 데스크톱 앱 — Electron 메인 프로세스
 const { app, BrowserWindow, Menu, dialog, ipcMain, net, protocol, shell } = require('electron');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
@@ -20,10 +20,10 @@ let dirty = false;
 let forceClose = false;
 let pendingOpen = null;
 
-/* ---------------------------------------------------------------- .ffanim 파일로 실행 */
+/* ---------------------------------------------------------------- .amg 파일로 실행 */
 
 function fileFromArgs(argv) {
-  return argv.slice(1).find((a) => a.toLowerCase().endsWith('.ffanim') && fs.existsSync(a)) || null;
+  return argv.slice(1).find((a) => /\.(amg|ffanim)$/i.test(a) && fs.existsSync(a)) || null;
 }
 
 function openFileInWindow(file) {
@@ -62,7 +62,7 @@ function createWindow() {
     height: 900,
     minWidth: 1100,
     minHeight: 700,
-    title: 'FrameFlow',
+    title: 'AMG',
     backgroundColor: '#0b0d12',
     show: false,
     autoHideMenuBar: true,
@@ -89,7 +89,7 @@ function createWindow() {
       buttons: ['저장하고 닫기', '저장하지 않고 닫기', '취소'],
       defaultId: 0,
       cancelId: 2,
-      title: 'FrameFlow',
+      title: 'AMG',
       message: '저장하지 않은 변경 사항이 있어요.',
       detail: '닫기 전에 저장할까요?',
     });
@@ -130,7 +130,7 @@ function createWindow() {
   });
 
   if (DEV_URL) win.loadURL(DEV_URL);
-  else win.loadURL('app://frameflow/index.html');
+  else win.loadURL('app://amg/index.html');
 }
 
 function buildMenu() {
@@ -142,8 +142,8 @@ function buildMenu() {
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
       {
-        label: 'FrameFlow',
-        submenu: [{ role: 'about', label: 'FrameFlow 정보' }, { type: 'separator' }, { role: 'hide', label: '가리기' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit', label: 'FrameFlow 종료' }],
+        label: 'AMG',
+        submenu: [{ role: 'about', label: 'AMG 정보' }, { type: 'separator' }, { role: 'hide', label: '가리기' }, { role: 'hideOthers' }, { role: 'unhide' }, { type: 'separator' }, { role: 'quit', label: 'AMG 종료' }],
       },
       {
         label: '편집',
@@ -226,7 +226,7 @@ ipcMain.handle('video:start', async (_e, o) => {
   const total = o.frames / o.fps;
   if (o.audio) {
     const ext = path.extname(o.audio.name || '') || '.audio';
-    tmpAudio = path.join(os.tmpdir(), `frameflow-${process.pid}-${id}${ext}`);
+    tmpAudio = path.join(os.tmpdir(), `amg-${process.pid}-${id}${ext}`);
     await fs.promises.writeFile(tmpAudio, Buffer.from(o.audio.data));
     const a = o.audio;
     const loopLen = o.loopFrames / o.fps;

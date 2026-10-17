@@ -76,11 +76,11 @@ export function TopBar({ onSave, onHome, saving }: { onSave: () => void; onHome:
             <button
               onClick={async () => {
                 close();
-                const path = await saveBlob(await exportProjectFile(useEditor.getState().project!), `${safeFileName(p.name)}.ffanim`, fileFilter('FrameFlow 프로젝트', 'ffanim'));
+                const path = await saveBlob(await exportProjectFile(useEditor.getState().project!), `${safeFileName(p.name)}.amg`, fileFilter('AMG 프로젝트', 'amg'));
                 if (path) st.toast(`'${baseName(path)}' 파일로 저장했어요`, 'success');
               }}
             >
-              <FileDown size={15} /> 프로젝트 파일로 저장 (.ffanim)
+              <FileDown size={15} /> 프로젝트 파일로 저장 (.amg)
             </button>
             <hr />
             <button onClick={async () => { close(); importFiles(await openFiles('image', true)); }}>

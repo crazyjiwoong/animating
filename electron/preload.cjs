@@ -1,7 +1,7 @@
 // 화면(렌더러)에 노출하는 안전한 기능들
 const { contextBridge, ipcRenderer } = require('electron');
 
-contextBridge.exposeInMainWorld('frameflow', {
+contextBridge.exposeInMainWorld('amg', {
   platform: process.platform,
   saveDialog: (opts) => ipcRenderer.invoke('dialog:save', opts),
   openDialog: (opts) => ipcRenderer.invoke('dialog:open', opts),

@@ -1945,3 +1945,14 @@ input[type='range']::-moz-range-thumb {
   opacity: 0.4;
   pointer-events: none;
 }
+.brand-name {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.brand-name small {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: -0.02em;
+}

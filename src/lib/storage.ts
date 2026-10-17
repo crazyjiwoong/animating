@@ -194,12 +194,13 @@ export async function renameProject(id: string, name: string) {
   if (m) await set(id, { ...m, name }, metaDb);
 }
 
-/* ---------------------------------------------------------------- .ffanim 파일 */
+/* ---------------------------------------------------------------- .amg 프로젝트 파일 */
 /*
- * 형식: "FFANIM01" (8바이트) + JSON 길이 (uint32 LE) + JSON + 바이너리 덩어리들
+ * 형식: "AMGPROJ1" (8바이트, 예전 .ffanim 은 "FFANIM01") + JSON 길이 (uint32 LE) + JSON + 바이너리 덩어리들
  * JSON 안의 Blob 자리는 { $blob: index, type } 로 바뀌고, blobs 배열에 [offset, size] 가 들어간다.
  */
-const MAGIC = 'FFANIM01';
+const MAGIC = 'AMGPROJ1';
+const OLD_MAGICS = ['FFANIM01'];
 
 export async function exportProjectFile(p: Project): Promise<Blob> {
   const stored = await serialize(p);
@@ -230,7 +231,8 @@ export async function exportProjectFile(p: Project): Promise<Blob> {
 export async function importProjectFile(file: Blob): Promise<Project> {
   const buf = await file.arrayBuffer();
   const dec = new TextDecoder();
-  if (dec.decode(buf.slice(0, 8)) !== MAGIC) throw new Error('FrameFlow 프로젝트 파일이 아니에요');
+  const magic = dec.decode(buf.slice(0, 8));
+  if (magic !== MAGIC && !OLD_MAGICS.includes(magic)) throw new Error('AMG 프로젝트 파일이 아니에요');
   const lens = new Uint32Array(buf.slice(8, 16));
   let off = 16;
   const header = JSON.parse(dec.decode(buf.slice(off, off + lens[0]))) as { sizes: number[] };

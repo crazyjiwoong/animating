@@ -1,5 +1,5 @@
 {
-  "name": "frameflow",
+  "name": "amg",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -34,13 +34,13 @@
     "vite": "^8.3.4",
     "zustand": "^5.0.15"
   },
-  "description": "FrameFlow — 프레임 애니메이션 스튜디오",
-  "author": "FrameFlow",
+  "description": "AMG(애니만들기힘들어서직접만듬) — 누구나 쉽게 만들 수 있는 초보자들을 위한 애니메이션 툴",
+  "author": "AMG",
   "main": "electron/main.cjs",
   "build": {
-    "appId": "app.frameflow.studio",
-    "productName": "FrameFlow",
-    "copyright": "FrameFlow",
+    "appId": "app.amg.animation",
+    "productName": "AMG",
+    "copyright": "AMG",
     "directories": {
       "output": "release",
       "buildResources": "build"
@@ -56,9 +56,14 @@
     ],
     "fileAssociations": [
       {
+        "ext": "amg",
+        "name": "AMG 프로젝트",
+        "description": "AMG 애니메이션 프로젝트",
+        "role": "Editor"
+      },
+      {
         "ext": "ffanim",
-        "name": "FrameFlow 프로젝트",
-        "description": "FrameFlow 애니메이션 프로젝트",
+        "name": "AMG 프로젝트 (이전 형식)",
         "role": "Editor"
       }
     ],
@@ -71,7 +76,7 @@
           ]
         }
       ],
-      "artifactName": "FrameFlow-Setup-${version}.${ext}",
+      "artifactName": "AMG-Setup-Windows.${ext}",
       "icon": "build/icon.png"
     },
     "nsis": {
@@ -80,7 +85,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "FrameFlow"
+      "shortcutName": "AMG"
     },
     "mac": {
       "target": [
@@ -92,7 +97,7 @@
         }
       ],
       "category": "public.app-category.graphics-design",
-      "artifactName": "FrameFlow-${version}.${ext}",
+      "artifactName": "AMG-macOS.${ext}",
       "icon": "build/icon.png"
     },
     "linux": {
@@ -100,7 +105,7 @@
         "AppImage"
       ],
       "category": "Graphics",
-      "artifactName": "FrameFlow-${version}.${ext}",
+      "artifactName": "AMG-Linux.${ext}",
       "icon": "build/icon.png"
     }
   }

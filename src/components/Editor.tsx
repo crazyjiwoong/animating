@@ -114,7 +114,7 @@ export function Editor({ onExit }: { onExit: () => void }) {
     const upd = () => {
       const s = useEditor.getState();
       if (!s.project) return;
-      document.title = `${s.dirty ? '● ' : ''}${s.project.name} — FrameFlow`;
+      document.title = `${s.dirty ? '● ' : ''}${s.project.name} — AMG`;
       desktop?.setDirty(s.dirty);
     };
     upd();
@@ -126,7 +126,7 @@ export function Editor({ onExit }: { onExit: () => void }) {
     return () => {
       un();
       off?.();
-      document.title = 'FrameFlow';
+      document.title = 'AMG';
       desktop?.setDirty(false);
     };
   }, [save]);

@@ -80,7 +80,9 @@ export function Home() {
             <div className="brand-mark">
               <Layers size={16} color="#fff" />
             </div>
-            FrameFlow
+            <span className="brand-name">
+              AMG <small>애니만들기힘들어서직접만듬</small>
+            </span>
           </div>
           <span className="muted" style={{ fontSize: 12 }}>
             {isDesktop ? '작업은 자동으로 저장돼요 · 파일로 저장은 파일 메뉴에서' : '브라우저에 자동 저장 · 설치 필요 없음'}
@@ -114,7 +116,7 @@ export function Home() {
                 </div>
                 <div>
                   <b>불러오기</b>
-                  <span>.ffanim 프로젝트 파일 열기</span>
+                  <span>.amg 프로젝트 파일 열기</span>
                 </div>
               </button>
             </div>

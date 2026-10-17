@@ -73,7 +73,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
         const blob = await exportPngSequence(p, scale, transparentPng, name, setProgress);
         finish(await saveBlob(blob, `${name}_frames.zip`, fileFilter('ZIP', 'zip'), 'pictures'));
       } else if (kind === 'project') {
-        finish(await saveBlob(await exportProjectFile(p), `${name}.ffanim`, fileFilter('FrameFlow 프로젝트', 'ffanim')));
+        finish(await saveBlob(await exportProjectFile(p), `${name}.amg`, fileFilter('AMG 프로젝트', 'amg')));
       }
     } catch (e) {
       if ((e as Error).name !== 'AbortError') toast('내보내기에 실패했어요: ' + (e as Error).message, 'error');
@@ -92,7 +92,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
     { id: 'png', label: 'PNG', desc: `현재 프레임 (${fi + 1}) 이미지` },
     { id: 'pngseq', label: 'PNG 묶음', desc: `${p.frames.length}장 · zip` },
     { id: 'sheet', label: '스프라이트 시트', desc: '한 장에 모든 프레임 · 게임용' },
-    { id: 'project', label: '프로젝트 파일', desc: '.ffanim · 나중에 불러오기' },
+    { id: 'project', label: '프로젝트 파일', desc: '.amg · 나중에 불러오기' },
   ];
 
   if (done)

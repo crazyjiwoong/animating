@@ -1,9 +1,10 @@
-name: PC 앱 빌드 (Windows · macOS)
+name: AMG 설치 파일 빌드 (Windows · macOS)
 
 on:
   push:
     branches: [main, 'claude/**']
     tags: ['v*']
+    paths-ignore: ['site/**', '**.md']
   workflow_dispatch:
 
 jobs:
@@ -28,9 +29,38 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       - uses: actions/upload-artifact@v4
         with:
-          name: FrameFlow-${{ runner.os }}
+          name: AMG-${{ runner.os }}
           path: |
             release/*.exe
             release/*.dmg
           if-no-files-found: error
           retention-days: 30
+
+  # main 에 올라오면 GitHub Releases 에 게시 → 소개 사이트의 다운로드 버튼이 항상 최신 버전을 받는다
+  release:
+    needs: build
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - id: ver
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist-installers
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.ver.outputs.version }}
+          name: AMG v${{ steps.ver.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          make_latest: true
+          body: |
+            AMG (애니만들기힘들어서직접만듬) — 누구나 쉽게 만들 수 있는 초보자들을 위한 애니메이션 툴
+
+            - Windows: `AMG-Setup-Windows.exe`
+            - macOS (Apple Silicon): `AMG-macOS.dmg`
+          files: dist-installers/*
+          fail_on_unmatched_files: true

@@ -39,16 +39,16 @@ export interface FileFilter {
   extensions: string[];
 }
 
-export const desktop: DesktopBridge | null = (window as unknown as { frameflow?: DesktopBridge }).frameflow ?? null;
+export const desktop: DesktopBridge | null = (window as unknown as { amg?: DesktopBridge }).amg ?? null;
 export const isDesktop = !!desktop;
 
 export type FileKind = 'image' | 'audio' | 'project';
 const FILTERS: Record<FileKind, FileFilter> = {
   image: { name: '이미지', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'] },
   audio: { name: '음악', extensions: ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac', 'opus'] },
-  project: { name: 'FrameFlow 프로젝트', extensions: ['ffanim'] },
+  project: { name: 'AMG 프로젝트', extensions: ['amg', 'ffanim'] },
 };
-const ACCEPT: Record<FileKind, string> = { image: 'image/*', audio: 'audio/*', project: '.ffanim,application/octet-stream' };
+const ACCEPT: Record<FileKind, string> = { image: 'image/*', audio: 'audio/*', project: '.amg,.ffanim,application/octet-stream' };
 const MIME: Record<string, string> = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp', svg: 'image/svg+xml',
   mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', m4a: 'audio/mp4', aac: 'audio/aac', flac: 'audio/flac', opus: 'audio/ogg',

@@ -9,7 +9,7 @@ export function App() {
   const hasProject = useEditor((s) => !!s.project);
   const close = useEditor((s) => s.closeProject);
 
-  // PC 앱: .ffanim 파일을 더블클릭해서 열기
+  // PC 앱: .amg 파일을 더블클릭해서 열기
   useEffect(
     () =>
       desktop?.onOpenFile(async (f) => {
