@@ -864,3 +864,17 @@ details p {
   color: var(--accent);
   font-weight: 900;
 }
+.portable {
+  margin: 18px 0 0;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14.5px;
+}
+.portable a {
+  color: var(--accent);
+  font-weight: 700;
+  margin-left: 6px;
+}
+.portable a:hover {
+  text-decoration: underline;
+}

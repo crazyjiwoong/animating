@@ -74,18 +74,25 @@
           "arch": [
             "x64"
           ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
         }
       ],
-      "artifactName": "AMG-Setup-Windows.${ext}",
       "icon": "build/icon.png"
     },
     "nsis": {
-      "oneClick": false,
+      "oneClick": true,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
+      "runAfterFinish": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "AMG"
+      "shortcutName": "AMG",
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "AMG-Setup-Windows.${ext}"
     },
     "mac": {
       "target": [
@@ -107,6 +114,9 @@
       "category": "Graphics",
       "artifactName": "AMG-Linux.${ext}",
       "icon": "build/icon.png"
+    },
+    "portable": {
+      "artifactName": "AMG-Portable-Windows.${ext}"
     }
   }
 }
