@@ -34,11 +34,9 @@ export type Dialog =
   | { type: 'export' }
   | { type: 'shortcuts' }
   | { type: 'audio' }
-  | { type: 'imageImport'; files: File[] }
-  | { type: 'tween' };
+  | { type: 'imageImport'; files: File[] };
 
 export type ShapeKind = 'line' | 'rect' | 'ellipse';
-export type Easing = 'linear' | 'in' | 'out' | 'inout';
 export interface OnionSettings {
   enabled: boolean;
   before: number;
@@ -125,7 +123,6 @@ export interface EditorState {
   setCel: (frameIndex: number, layerId: string, cel: Cel | null, label: string, key?: string) => void;
   setExposure: (layerId: string, start: number, end: number, length: number, mode?: 'ripple' | 'overwrite') => void;
   splitRun: (layerId: string, frameIndex: number) => void;
-  tween: (layerId: string, from: number, to: number, easing: Easing) => void;
   setTransform: (frameIndex: number, layerId: string, t: Partial<Transform>, key?: string) => void;
   copyCel: () => void;
   pasteCel: () => void;
@@ -204,13 +201,6 @@ function writeColumn(frames: Frame[], layerId: string, col: (Cel | undefined)[])
     return { ...f, cels };
   });
 }
-
-export const EASINGS: Record<Easing, (t: number) => number> = {
-  linear: (t) => t,
-  in: (t) => t * t,
-  out: (t) => 1 - (1 - t) * (1 - t),
-  inout: (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2),
-};
 
 function nextLayerName(layers: Layer[], base: string) {
   let n = layers.length + 1;
@@ -623,42 +613,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     s.toast(`프레임 ${from + 1}부터 따로 편집할 수 있어요`, 'success');
   },
 
-  tween: (layerId, from, to, easing) => {
-    const s = get();
-    const p = s.project!;
-    const A = p.frames[from]?.cels[layerId];
-    const B = p.frames[to]?.cels[layerId];
-    if (!A || !B || A.kind !== 'image' || B.kind !== 'image') {
-      s.toast('시작·끝 프레임 모두 이 이미지 레이어에 그림이 있어야 해요', 'error');
-      return;
-    }
-    if (to - from < 2) {
-      s.toast('시작과 끝 사이에 프레임이 1장 이상 있어야 해요', 'error');
-      return;
-    }
-    const ease = EASINGS[easing];
-    // 회전은 가까운 방향으로
-    let dr = B.t.rotation - A.t.rotation;
-    if (dr > 180) dr -= 360;
-    if (dr < -180) dr += 360;
-    const lerp = (x: number, y: number, k: number) => x + (y - x) * k;
-    s.commit('자동 중간 프레임', (p) => ({
-      frames: p.frames.map((f, i) => {
-        if (i <= from || i >= to) return f;
-        const k = ease((i - from) / (to - from));
-        const t: Transform = {
-          ...A.t,
-          x: lerp(A.t.x, B.t.x, k),
-          y: lerp(A.t.y, B.t.y, k),
-          scale: lerp(A.t.scale, B.t.scale, k),
-          rotation: A.t.rotation + dr * k,
-          opacity: lerp(A.t.opacity, B.t.opacity, k),
-        };
-        return { ...f, cels: { ...f.cels, [layerId]: { kind: 'image', key: uid('c_'), assetId: A.assetId, t } } };
-      }),
-    }));
-    s.toast(`프레임 ${from + 2}~${to}의 중간 동작을 채웠어요`, 'success');
-  },
+
 
   setTransform: (frameIndex, layerId, t, key) => {
     const p = get().project!;

@@ -1,4 +1,4 @@
-import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, FlipHorizontal2, FlipVertical2, RotateCcw, Crosshair, History, ImageUp, Slash, Square, Circle, Wand2 } from 'lucide-react';
+import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, FlipHorizontal2, FlipVertical2, RotateCcw, Crosshair, History, ImageUp, Slash, Square, Circle } from 'lucide-react';
 import { pickFile } from '../lib/id';
 import { replaceCurrentImage } from '../lib/importers';
 import { useEditor, currentCel, currentLayer, type BrushSettings } from '../store/editor';
@@ -131,9 +131,6 @@ function MoveProps() {
           <RotateCcw size={13} /> 초기화
         </button>
       </div>
-      <button className="btn sm primary" onClick={() => useEditor.getState().set({ dialog: { type: 'tween' } })} title="시작·끝 위치 사이를 자동으로 채워요">
-        <Wand2 size={13} /> 자동 중간 프레임 (트윈)
-      </button>
       <button className="btn sm" onClick={copyPrev} disabled={fi === 0}>
         <History size={13} /> 이전 프레임 위치 그대로 가져오기
       </button>

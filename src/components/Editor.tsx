@@ -18,7 +18,6 @@ import { SettingsDialog } from './dialogs/ProjectDialogs';
 import { ExportDialog } from './dialogs/ExportDialog';
 import { ShortcutsDialog } from './dialogs/ShortcutsDialog';
 import { ImageImportDialog } from './dialogs/ImageImportDialog';
-import { TweenDialog } from './dialogs/TweenDialog';
 import type { Tool } from '../types';
 
 const TOOL_KEYS: Record<string, Tool> = { b: 'brush', e: 'eraser', u: 'shape', v: 'move', g: 'fill', i: 'picker', h: 'hand' };
@@ -229,10 +228,6 @@ export function Editor({ onExit }: { onExit: () => void }) {
           s.set({ [key]: { ...b, size } } as never);
           break;
         }
-        case 't':
-        case 'T':
-          s.set({ dialog: { type: 'tween' } });
-          break;
         case 'm':
         case 'M':
           s.set({ flipView: !s.flipView });
@@ -296,7 +291,6 @@ export function Editor({ onExit }: { onExit: () => void }) {
       {dialog?.type === 'export' && <ExportDialog onClose={close} />}
       {dialog?.type === 'shortcuts' && <ShortcutsDialog onClose={close} />}
       {dialog?.type === 'imageImport' && <ImageImportDialog files={dialog.files} onClose={close} />}
-      {dialog?.type === 'tween' && <TweenDialog onClose={close} />}
       <Toasts />
     </div>
   );
