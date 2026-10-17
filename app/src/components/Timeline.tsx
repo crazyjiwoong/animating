@@ -216,8 +216,8 @@ function AudioLane({ start, end, col, fi, onFrame }: { start: number; end: numbe
     const dpr = window.devicePixelRatio || 1;
     const w = (end - start) * col;
     const h = 56;
-    c.width = Math.max(1, w * dpr);
-    c.height = h * dpr;
+    c.width = Math.max(1, Math.round(w * dpr));
+    c.height = Math.round(h * dpr);
     c.style.width = w + 'px';
     c.style.height = h + 'px';
     const ctx = c.getContext('2d')!;

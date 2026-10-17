@@ -25,18 +25,21 @@ export function FpsDemo({ fps, fill }: { fps: number; fill?: boolean }) {
     const draw = (now: number) => {
       raf = requestAnimationFrame(draw);
       const dpr = Math.min(2, window.devicePixelRatio || 1);
-      const W = c.clientWidth * dpr;
-      const H = c.clientHeight * dpr;
+      // 캔버스 크기는 정수여야 한다 — 125% 배율처럼 소수가 나오면 매번 크기를 다시 맞추며 화면이 지워져 깜빡였다
+      const W = Math.round(c.clientWidth * dpr);
+      const H = Math.round(c.clientHeight * dpr);
+      let resized = false;
       if (c.width !== W || c.height !== H) {
         c.width = W;
         c.height = H;
+        resized = true;
       }
       const t = (now - start) / 1000;
       const frame = Math.floor(t * fps);
-      if (frame === lastFrame) return;
-      lastFrame = frame;
+      if (frame === lastFrame && !resized) return;
       const q = (frame / fps) % loop;
-      ghosts.push(q);
+      if (frame !== lastFrame) ghosts.push(q);
+      lastFrame = frame;
       if (ghosts.length > 4) ghosts.shift();
 
       ctx.setTransform(1, 0, 0, 1, 0, 0);
