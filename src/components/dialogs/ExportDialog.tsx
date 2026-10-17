@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { Download, Film, Music } from 'lucide-react';
 import { Modal, Seg, Stepper, Toggle } from '../ui';
 import { useEditor } from '../../store/editor';
-import { exportFramePng, exportGif, exportVideo, supportedVideoFormats } from '../../lib/export';
+import { exportFramePng, exportGif, exportPngSequence, exportSpriteSheet, exportVideo, supportedVideoFormats } from '../../lib/export';
 import { exportProjectFile } from '../../lib/storage';
 import { downloadBlob, safeFileName } from '../../lib/id';
 import { stopAudio } from '../../lib/audio';
@@ -40,6 +40,10 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
         downloadBlob(blob, `${name}.gif`);
       } else if (kind === 'png') {
         downloadBlob(await exportFramePng(p, fi, scale, transparentPng), `${name}_${String(fi + 1).padStart(3, '0')}.png`);
+      } else if (kind === 'sheet') {
+        downloadBlob(await exportSpriteSheet(p, scale, transparentPng), `${name}_sheet.png`);
+      } else if (kind === 'pngseq') {
+        downloadBlob(await exportPngSequence(p, scale, transparentPng, name, setProgress), `${name}_frames.zip`);
       } else if (kind === 'project') {
         downloadBlob(await exportProjectFile(p), `${name}.ffanim`);
       }
@@ -55,6 +59,8 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
     ...formats.map((f) => ({ id: f.id, label: f.label, desc: f.ext === 'mp4' ? '어디서나 재생 · 음악 포함' : '웹·유튜브 업로드 · 음악 포함' })),
     { id: 'gif', label: 'GIF', desc: '움짤 · 소리 없음' },
     { id: 'png', label: 'PNG', desc: `현재 프레임 (${fi + 1}) 이미지` },
+    { id: 'pngseq', label: 'PNG 묶음', desc: `${p.frames.length}장 · zip` },
+    { id: 'sheet', label: '스프라이트 시트', desc: '한 장에 모든 프레임 · 게임용' },
     { id: 'project', label: '프로젝트 파일', desc: '.ffanim · 나중에 불러오기' },
   ];
 
@@ -127,7 +133,7 @@ export function ExportDialog({ onClose }: { onClose: () => void }) {
           </div>
         </div>
       )}
-      {kind === 'png' && <Toggle label="투명 배경으로 저장" on={transparentPng} onChange={setTransparentPng} />}
+      {(kind === 'png' || kind === 'pngseq' || kind === 'sheet') && <Toggle label="투명 배경으로 저장" on={transparentPng} onChange={setTransparentPng} />}
       {progress !== null && (
         <div className="field">
           <label>진행 중… {Math.round(progress * 100)}%</label>

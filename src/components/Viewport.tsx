@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { ZoomIn, ZoomOut, Maximize, Lock, EyeOff } from 'lucide-react';
+import { ZoomIn, ZoomOut, Maximize, Lock, EyeOff, Grid3x3, Scan, FlipHorizontal2 } from 'lucide-react';
 import type { Frame, Layer, Project, Transform } from '../types';
-import { useEditor, currentLayer } from '../store/editor';
+import { useEditor, currentLayer, type ShapeKind } from '../store/editor';
 import { useView } from '../store/view';
 import { live, invalidate, onInvalidate } from '../lib/live';
 import { alphaBounds, checkerPattern, cloneCanvas, createCanvas, ctx2d, floodFillMask, rgbToHex, type Rect } from '../lib/canvas';
@@ -16,16 +16,77 @@ function rasterBounds(c: HTMLCanvasElement) {
   return boundsCache.get(c)!;
 }
 
-const onionCache = new Map<string, { frame: Frame; layers: Layer[]; canvas: HTMLCanvasElement }>();
-function onionCanvas(p: Project, i: number, tint: string) {
+/** 프레임의 '그림 구성' — 보이는 레이어들의 셀 key 묶음 */
+function frameSig(p: Project, i: number) {
   const f = p.frames[i];
-  const key = f.id + tint;
+  return p.layers.map((l) => (l.visible ? (f.cels[l.id]?.key ?? (f.cels[l.id] ? `#${i}` : '-')) : '')).join('|');
+}
+
+/** 어니언 스킨으로 보여줄 프레임들 (가까운 순) */
+function onionFrames(p: Project, cur: number, dir: -1 | 1, count: number, loop: boolean, skipSame: boolean) {
+  const n = p.frames.length;
+  const out: number[] = [];
+  let last = skipSame ? frameSig(p, cur) : '';
+  let i = cur;
+  for (let step = 0; step < n && out.length < count; step++) {
+    i += dir;
+    if (i < 0 || i >= n) {
+      if (!loop || n <= 2) break;
+      i = (i + n) % n;
+    }
+    if (i === cur) break;
+    if (skipSame) {
+      const sg = frameSig(p, i);
+      if (sg === last) continue;
+      last = sg;
+    }
+    out.push(i);
+  }
+  return out;
+}
+
+const onionCache = new Map<string, { frame: Frame; layers: Layer[]; canvas: HTMLCanvasElement }>();
+/** 현재 프레임과 그림이 다른 레이어만 모아 그린다 (같은 배경 등은 제외) */
+function onionCanvas(p: Project, i: number, cur: number, tint: string | null) {
+  const f = p.frames[i];
+  const c = p.frames[cur];
+  const layers = p.layers.filter((l) => l.visible && f.cels[l.id] && f.cels[l.id] !== c.cels[l.id] && (!f.cels[l.id]!.key || f.cels[l.id]!.key !== c.cels[l.id]?.key));
+  const sig = layers.map((l) => l.id).join(',');
+  const key = `${f.id}|${tint}|${sig}`;
   const hit = onionCache.get(key);
   if (hit && hit.frame === f && hit.layers === p.layers && hit.canvas.width === p.width && hit.canvas.height === p.height) return hit.canvas;
-  const canvas = renderTinted(p, i, tint, hit?.canvas);
+  const sub = { ...p, layers: layers.map((l) => ({ ...l, opacity: l.opacity })) };
+  const canvas = tint ? renderTinted(sub, i, tint, hit?.canvas) : renderFrameCanvas(sub, i, { background: false }, hit?.canvas);
   onionCache.set(key, { frame: f, layers: p.layers, canvas });
   if (onionCache.size > 40) onionCache.delete(onionCache.keys().next().value!);
   return canvas;
+}
+
+/** 캔버스 좌표 → 화면 좌표 (좌우 반전 보기 반영) */
+function toScreen(x: number, y: number): [number, number] {
+  const v = useView.getState();
+  const s = useEditor.getState();
+  const w = s.project?.width ?? 0;
+  return [v.panX + (s.flipView ? w - x : x) * v.zoom, v.panY + y * v.zoom];
+}
+
+function drawShape(ctx: CanvasRenderingContext2D, kind: ShapeKind, a: { x: number; y: number }, b: { x: number; y: number }, fill: boolean, color: string, size: number) {
+  ctx.lineWidth = size;
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  if (kind === 'line') {
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+    return;
+  }
+  if (kind === 'rect') ctx.rect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+  else ctx.ellipse((a.x + b.x) / 2, (a.y + b.y) / 2, Math.abs(b.x - a.x) / 2, Math.abs(b.y - a.y) / 2, 0, 0, Math.PI * 2);
+  if (fill) ctx.fill();
+  else ctx.stroke();
 }
 
 /* ---------------------------------------------------------------- 변형 대상 */
@@ -107,6 +168,21 @@ type Drag =
       startAngle: number;
       startDist: number;
     }
+  | {
+      type: 'shape';
+      layerId: string;
+      frameIndex: number;
+      base: HTMLCanvasElement | null;
+      work: HTMLCanvasElement;
+      start: { x: number; y: number };
+      end: { x: number; y: number };
+      kind: ShapeKind;
+      fill: boolean;
+      color: string;
+      size: number;
+      opacity: number;
+      alphaLock: boolean;
+    }
   | { type: 'pinch'; d0: number; z0: number; cx: number; cy: number; mx: number; my: number };
 
 function stamp(ctx: CanvasRenderingContext2D, ax: number, ay: number, as: number, bx: number, by: number, bs: number) {
@@ -162,7 +238,7 @@ export function Viewport() {
 
     const showOnion = s.onion.enabled && !s.playing;
     // 현재 프레임 합성
-    frameBuf.current = renderFrameCanvas(p, s.frameIndex, { background: !showOnion, override: live.override }, frameBuf.current ?? undefined);
+    frameBuf.current = renderFrameCanvas(p, s.frameIndex, { background: true, override: live.override }, frameBuf.current ?? undefined);
 
     // 종이 그림자
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -189,28 +265,60 @@ export function Viewport() {
       ctx.fillStyle = checkerPattern(ctx);
       ctx.fillRect(x0, y0, pw, ph);
     }
-    ctx.setTransform(dpr * v.zoom, 0, 0, dpr * v.zoom, dpr * x0, dpr * y0);
+    const flip = s.flipView;
+    ctx.setTransform(dpr * v.zoom * (flip ? -1 : 1), 0, 0, dpr * v.zoom, dpr * (flip ? x0 + pw : x0), dpr * y0);
     ctx.imageSmoothingEnabled = v.zoom < 2;
     ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(frameBuf.current, 0, 0);
     if (showOnion) {
-      const { before, after, opacity } = s.onion;
-      for (let k = before; k >= 1; k--) {
-        const i = s.frameIndex - k;
-        const idx = i < 0 ? (s.loop && p.frames.length > 2 ? p.frames.length + i : -1) : i;
-        if (idx < 0 || idx === s.frameIndex) continue;
-        ctx.globalAlpha = opacity * (1 - (k - 1) / (before + 1));
-        ctx.drawImage(onionCanvas(p, idx, '#ff4d6d'), 0, 0);
-      }
-      for (let k = after; k >= 1; k--) {
-        const i = s.frameIndex + k;
-        const idx = i >= p.frames.length ? (s.loop && p.frames.length > 2 ? i - p.frames.length : -1) : i;
-        if (idx < 0 || idx === s.frameIndex) continue;
-        ctx.globalAlpha = opacity * (1 - (k - 1) / (after + 1));
-        ctx.drawImage(onionCanvas(p, idx, '#3d8bff'), 0, 0);
-      }
+      // 이전/다음 프레임을 현재 그림 위에 반투명하게
+      const { before, after, opacity, mode, skipSame } = s.onion;
+      const tinted = mode === 'tint';
+      const prev = onionFrames(p, s.frameIndex, -1, before, s.loop, skipSame);
+      const next = onionFrames(p, s.frameIndex, 1, after, s.loop, skipSame);
+      prev.forEach((idx, k) => {
+        ctx.globalAlpha = opacity * (1 - k / (before + 1));
+        ctx.drawImage(onionCanvas(p, idx, s.frameIndex, tinted ? '#ff4d6d' : null), 0, 0);
+      });
+      next.forEach((idx, k) => {
+        ctx.globalAlpha = opacity * (1 - k / (after + 1));
+        ctx.drawImage(onionCanvas(p, idx, s.frameIndex, tinted ? '#3d8bff' : null), 0, 0);
+      });
       ctx.globalAlpha = 1;
     }
-    ctx.drawImage(frameBuf.current, 0, 0);
+    // 격자 · 안전 영역
+    if (s.grid.enabled || s.grid.safe) {
+      ctx.lineWidth = 1 / v.zoom;
+      if (s.grid.enabled) {
+        const g = Math.max(4, s.grid.size);
+        ctx.strokeStyle = 'rgba(139,123,255,0.28)';
+        ctx.beginPath();
+        for (let x = g; x < p.width; x += g) {
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, p.height);
+        }
+        for (let y = g; y < p.height; y += g) {
+          ctx.moveTo(0, y);
+          ctx.lineTo(p.width, y);
+        }
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(255,111,181,0.45)';
+        ctx.beginPath();
+        ctx.moveTo(p.width / 2, 0);
+        ctx.lineTo(p.width / 2, p.height);
+        ctx.moveTo(0, p.height / 2);
+        ctx.lineTo(p.width, p.height / 2);
+        ctx.stroke();
+      }
+      if (s.grid.safe) {
+        ctx.setLineDash([8 / v.zoom, 6 / v.zoom]);
+        ctx.strokeStyle = 'rgba(255,179,64,0.75)';
+        ctx.strokeRect(p.width * 0.05, p.height * 0.05, p.width * 0.9, p.height * 0.9);
+        ctx.strokeStyle = 'rgba(94,227,140,0.75)';
+        ctx.strokeRect(p.width * 0.1, p.height * 0.1, p.width * 0.8, p.height * 0.8);
+        ctx.setLineDash([]);
+      }
+    }
     ctx.restore();
 
     // 테두리
@@ -226,7 +334,7 @@ export function Viewport() {
       if (d?.type === 'transform') box = { w: d.w, h: d.h, t: d.t };
       else box = targetBox(p, s.frameIndex, s.layerId);
       if (box) {
-        const pts = boxCorners(box).map(([x, y]) => [x0 + x * v.zoom, y0 + y * v.zoom]);
+        const pts = boxCorners(box).map(([x, y]) => toScreen(x, y));
         ctx.strokeStyle = '#8b7bff';
         ctx.lineWidth = 1.5;
         ctx.setLineDash([]);
@@ -377,7 +485,9 @@ export function Viewport() {
   };
   const toCanvas = (sx: number, sy: number) => {
     const v = useView.getState();
-    return { x: (sx - v.panX) / v.zoom, y: (sy - v.panY) / v.zoom };
+    const s = useEditor.getState();
+    const x = (sx - v.panX) / v.zoom;
+    return { x: s.flipView ? (s.project?.width ?? 0) - x : x, y: (sy - v.panY) / v.zoom };
   };
 
   /* ---------------- 포인터 */
@@ -431,6 +541,30 @@ export function Viewport() {
     if (!lyr) return;
     if (lyr.locked) {
       s.toast('잠긴 레이어예요 · 레이어 패널에서 잠금을 풀어 주세요', 'error');
+      return;
+    }
+
+    if (tool === 'shape') {
+      if (lyr.kind !== 'raster') {
+        s.toast('이미지 레이어에는 도형을 그릴 수 없어요 · 새 레이어를 추가하세요', 'error');
+        return;
+      }
+      const cel = p.frames[s.frameIndex].cels[lyr.id];
+      drag.current = {
+        type: 'shape',
+        layerId: lyr.id,
+        frameIndex: s.frameIndex,
+        base: cel?.kind === 'raster' ? cel.canvas : null,
+        work: createCanvas(p.width, p.height),
+        start: c,
+        end: c,
+        kind: s.shape.kind,
+        fill: s.shape.fill,
+        color: s.color,
+        size: s.brush.size,
+        opacity: s.brush.opacity,
+        alphaLock: lyr.alphaLock,
+      };
       return;
     }
 
@@ -492,7 +626,7 @@ export function Viewport() {
     if (tool === 'move') {
       let box = targetBox(p, s.frameIndex, lyr.id);
       let layerId = lyr.id;
-      const screenPts = box ? boxCorners(box).map(([x, y]) => [v.panX + x * v.zoom, v.panY + y * v.zoom]) : null;
+      const screenPts = box ? boxCorners(box).map(([x, y]) => toScreen(x, y)) : null;
       let mode: 'move' | 'scale' | 'rotate' | null = null;
       if (box && screenPts) {
         const rh = rotHandle(screenPts);
@@ -586,7 +720,8 @@ export function Viewport() {
       const mx = (a.x + b.x) / 2,
         my = (a.y + b.y) / 2;
       const zoom = Math.min(32, Math.max(0.05, (d.z0 * Math.hypot(a.x - b.x, a.y - b.y)) / d.d0));
-      v.setView({ zoom, panX: mx - d.cx * zoom, panY: my - d.cy * zoom });
+      const cx = s.flipView ? (s.project?.width ?? 0) - d.cx : d.cx;
+      v.setView({ zoom, panX: mx - cx * zoom, panY: my - d.cy * zoom });
       return;
     }
     if (d.type === 'pan') {
@@ -609,6 +744,40 @@ export function Viewport() {
         d.last = { x: d.smooth.x, y: d.smooth.y, s: size };
       }
       composeStroke(d);
+      return;
+    }
+    if (d.type === 'shape') {
+      const c = toCanvas(pt.x, pt.y);
+      let { x, y } = c;
+      if (e.shiftKey) {
+        const dx = x - d.start.x,
+          dy = y - d.start.y;
+        if (d.kind === 'line') {
+          // 45° 단위로 고정
+          const a = Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) * (Math.PI / 4);
+          const len = Math.hypot(dx, dy);
+          x = d.start.x + Math.cos(a) * len;
+          y = d.start.y + Math.sin(a) * len;
+        } else {
+          const m = Math.max(Math.abs(dx), Math.abs(dy));
+          x = d.start.x + Math.sign(dx || 1) * m;
+          y = d.start.y + Math.sign(dy || 1) * m;
+        }
+      }
+      d.end = { x, y };
+      const ctx = ctx2d(d.work);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+      ctx.clearRect(0, 0, d.work.width, d.work.height);
+      if (d.base) ctx.drawImage(d.base, 0, 0);
+      ctx.globalAlpha = d.opacity;
+      ctx.globalCompositeOperation = d.alphaLock ? 'source-atop' : 'source-over';
+      drawShape(ctx, d.kind, d.start, d.end, d.fill, d.color, d.size);
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      const work = d.work;
+      live.override = { layerId: d.layerId, draw: (c2) => c2.drawImage(work, 0, 0) };
+      invalidate();
       return;
     }
     if (d.type === 'transform') {
@@ -646,6 +815,12 @@ export function Viewport() {
     drag.current = null;
     const s = useEditor.getState();
     const p = s.project!;
+    if (d.type === 'shape') {
+      live.override = null;
+      if (Math.hypot(d.end.x - d.start.x, d.end.y - d.start.y) > 1) s.setCel(d.frameIndex, d.layerId, { kind: 'raster', canvas: d.work }, '도형');
+      invalidate();
+      return;
+    }
     if (d.type === 'stroke') {
       s.setCel(d.frameIndex, d.layerId, { kind: 'raster', canvas: d.work }, d.erase ? '지우개' : '브러시');
       live.override = null;
@@ -692,6 +867,8 @@ export function Viewport() {
         : effTool === 'move'
           ? 'move'
           : 'crosshair';
+  const flipView = useEditor((s) => s.flipView);
+  const grid = useEditor((s) => s.grid);
 
   return (
     <div
@@ -747,7 +924,22 @@ export function Viewport() {
         <button className="icon-btn sm" onClick={() => useView.getState().fit()} title="화면 맞춤 (0)">
           <Maximize size={13} />
         </button>
+        <span className="hud-sep" />
+        <button className={'icon-btn sm' + (grid.enabled ? ' active' : '')} onClick={() => useEditor.getState().set({ grid: { ...grid, enabled: !grid.enabled } })} title="격자 (')">
+          <Grid3x3 size={13} />
+        </button>
+        <button className={'icon-btn sm' + (grid.safe ? ' active' : '')} onClick={() => useEditor.getState().set({ grid: { ...grid, safe: !grid.safe } })} title="안전 영역 (영상 가장자리 잘림 확인)">
+          <Scan size={13} />
+        </button>
+        <button className={'icon-btn sm' + (flipView ? ' active' : '')} onClick={() => useEditor.getState().set({ flipView: !flipView })} title="좌우 반전 보기 (M) — 그림 비율 확인용, 실제 그림은 안 바뀌어요">
+          <FlipHorizontal2 size={13} />
+        </button>
       </div>
+      {flipView && (
+        <div className="stage-badge" style={{ top: 'auto', bottom: 14, left: 'auto', right: 14, transform: 'none' }}>
+          <FlipHorizontal2 size={13} /> 좌우 반전 보기 중
+        </div>
+      )}
       {dropping && <div className="drop-hint">이미지나 음악 파일을 놓으면 가져와요</div>}
     </div>
   );

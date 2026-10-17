@@ -192,3 +192,39 @@ export async function exportFramePng(p: Project, index: number, scale: number, t
   renderFrame(ctx, p, index, { background: !transparent });
   return canvasToBlob(c);
 }
+
+/** 모든 프레임을 한 장에 격자로 배치한 스프라이트 시트 */
+export async function exportSpriteSheet(p: Project, scale: number, transparent: boolean): Promise<Blob> {
+  const fw = Math.max(1, Math.round(p.width * scale));
+  const fh = Math.max(1, Math.round(p.height * scale));
+  const n = p.frames.length;
+  // 가로세로가 비슷하도록, 너무 크면 열 수를 줄이지 않고 그대로 (브라우저 최대 약 16k)
+  const cols = Math.max(1, Math.min(n, Math.ceil(Math.sqrt((n * fh) / fw))));
+  const rows = Math.ceil(n / cols);
+  if (cols * fw > 16384 || rows * fh > 16384) throw new Error('시트가 너무 커요 · 해상도를 낮춰 주세요');
+  const c = createCanvas(cols * fw, rows * fh);
+  const ctx = ctx2d(c);
+  for (let i = 0; i < n; i++) {
+    ctx.setTransform(scale, 0, 0, scale, (i % cols) * fw, Math.floor(i / cols) * fh);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, p.width, p.height);
+    ctx.clip();
+    renderFrame(ctx, p, i, { background: !transparent });
+    ctx.restore();
+  }
+  return canvasToBlob(c);
+}
+
+/** 프레임별 PNG 를 zip 으로 */
+export async function exportPngSequence(p: Project, scale: number, transparent: boolean, baseName: string, onProgress?: (r: number) => void): Promise<Blob> {
+  const { zipSync } = await import('fflate');
+  const files: Record<string, Uint8Array> = {};
+  for (let i = 0; i < p.frames.length; i++) {
+    const blob = await exportFramePng(p, i, scale, transparent);
+    files[`${baseName}_${String(i + 1).padStart(4, '0')}.png`] = new Uint8Array(await blob.arrayBuffer());
+    onProgress?.((i + 1) / p.frames.length);
+  }
+  // PNG 는 이미 압축돼 있으므로 저장만
+  return new Blob([zipSync(files, { level: 0 }) as BlobPart], { type: 'application/zip' });
+}

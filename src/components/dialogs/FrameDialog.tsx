@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { CopyPlus, Film, ArrowLeft, ArrowRight, Eraser, Trash2, SquarePlus } from 'lucide-react';
+import { CopyPlus, Film, ArrowLeft, ArrowRight, Eraser, Trash2, SquarePlus, MoveHorizontal } from 'lucide-react';
 import { Modal, Stepper } from '../ui';
-import { useEditor } from '../../store/editor';
+import { useEditor, runAt } from '../../store/editor';
 import { renderThumb } from '../../lib/render';
 import { noteColor, noteName, formatTime } from '../../lib/audio';
 import { useFrameSounds } from '../Timeline';
@@ -16,6 +16,11 @@ export function FrameDialog({ index, onClose }: { index: number; onClose: () => 
   const sounds = useFrameSounds();
   const frame = p.frames[index];
   const [memo, setMemo] = useState(frame?.memo ?? '');
+  const layerId = useEditor((s) => s.layerId);
+  const layer = p.layers.find((l) => l.id === layerId);
+  const [runA, runB] = frame ? runAt(p.frames, layerId, index) : [index, index];
+  const hasCel = !!frame?.cels[layerId];
+  const [hold, setHold] = useState(runB - runA + 1);
 
   useEffect(() => {
     if (ref.current && frame) renderThumb(p, index, 360, 240, ref.current);
@@ -105,6 +110,30 @@ export function FrameDialog({ index, onClose }: { index: number; onClose: () => 
           추가 후 {p.frames.length + count}프레임 · {((p.frames.length + count) / p.fps).toFixed(2)}초
         </div>
       </div>
+
+      {layer && hasCel && (
+        <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div className="row">
+            <MoveHorizontal size={16} color="var(--accent)" />
+            <b className="grow">'{layer.name}' 그림 길이</b>
+            <span className="muted" style={{ fontSize: 12 }}>
+              지금 프레임 {runA + 1}~{runB + 1} ({runB - runA + 1}프레임)
+            </span>
+          </div>
+          <div className="row" style={{ flexWrap: 'wrap' }}>
+            <Stepper value={hold} onChange={setHold} min={1} max={2000} />
+            <span>프레임 동안 보이기</span>
+            <span className="grow" />
+            <button className="btn" onClick={() => { st.setExposure(layerId, runA, runB, hold); onClose(); }} disabled={hold === runB - runA + 1}>
+              적용
+            </button>
+            <button className="btn" onClick={() => { st.setExposure(layerId, runA, runB, p.frames.length - runA, 'overwrite'); onClose(); }}>
+              끝까지
+            </button>
+          </div>
+          <div className="muted" style={{ fontSize: 11.5 }}>타임라인에서 막대 오른쪽 끝을 끌어도 돼요. 늘린 구간은 한 그림이라 함께 편집돼요.</div>
+        </div>
+      )}
 
       <div className="row" style={{ flexWrap: 'wrap' }}>
         <span className="label">빈 프레임</span>

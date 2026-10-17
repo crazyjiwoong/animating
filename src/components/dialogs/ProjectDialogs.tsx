@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { Sparkles, Settings } from 'lucide-react';
-import { Modal } from '../ui';
+import { Sparkles, Settings, Ghost } from 'lucide-react';
+import { Modal, Seg, Slider, Toggle } from '../ui';
 import { FpsPicker } from '../FpsPicker';
 import { useEditor } from '../../store/editor';
 import { clamp } from '../../lib/id';
@@ -127,35 +127,99 @@ export function NewProjectDialog({ onClose, onCreate }: { onClose: () => void; o
   );
 }
 
-export function SettingsDialog({ onClose }: { onClose: () => void }) {
+function ViewSettings() {
+  const onion = useEditor((s) => s.onion);
+  const grid = useEditor((s) => s.grid);
+  const flipView = useEditor((s) => s.flipView);
+  const exposureMode = useEditor((s) => s.exposureMode);
+  const scrub = useEditor((s) => s.scrubSound);
+  const naming = useEditor((s) => s.noteNaming);
+  const set = useEditor((s) => s.set);
+  const o = (patch: Partial<typeof onion>) => set({ onion: { ...onion, ...patch } });
+  return (
+    <>
+      <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div className="row">
+          <Ghost size={16} color="var(--accent)" />
+          <b className="grow">이전 프레임 겹쳐 보기 (어니언 스킨)</b>
+          <button type="button" className={'toggle' + (onion.enabled ? ' on' : '')} onClick={() => o({ enabled: !onion.enabled })} aria-pressed={onion.enabled} />
+        </div>
+        <div className="muted" style={{ fontSize: 12, marginTop: -6 }}>
+          현재 프레임 위에 이전 프레임이 반투명하게 보여요. 움직임 간격을 맞출 때 좋아요. 재생 중에는 자동으로 숨겨요.
+        </div>
+        <div style={{ opacity: onion.enabled ? 1 : 0.4, pointerEvents: onion.enabled ? 'auto' : 'none', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <Slider label="불투명도" value={Math.round(onion.opacity * 100)} min={5} max={90} onChange={(v) => o({ opacity: v / 100 })} format={(v) => `${v}%`} />
+          <div className="grid2">
+            <Slider label="이전 프레임" value={onion.before} min={0} max={5} onChange={(before) => o({ before })} format={(v) => `${v}장`} />
+            <Slider label="다음 프레임" value={onion.after} min={0} max={5} onChange={(after) => o({ after })} format={(v) => `${v}장`} />
+          </div>
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <span className="label">표시 방식</span>
+            <Seg value={onion.mode} onChange={(mode) => o({ mode })} options={[{ value: 'plain', label: '원래 색' }, { value: 'tint', label: '색 입히기 (이전 빨강 · 다음 파랑)' }]} />
+          </div>
+          <Toggle label="길게 늘린 같은 그림은 건너뛰고 이전 '다른' 그림 보기" on={onion.skipSame} onChange={(skipSame) => o({ skipSame })} />
+        </div>
+      </div>
+      <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <b>타임라인</b>
+        <div className="row" style={{ justifyContent: 'space-between' }}>
+          <span className="label">셀 끝을 끌어 늘릴 때</span>
+          <Seg value={exposureMode} onChange={(exposureMode) => set({ exposureMode })} options={[{ value: 'ripple', label: '뒤 그림 밀기' }, { value: 'overwrite', label: '덮어쓰기' }]} />
+        </div>
+        <Toggle label="프레임 이동할 때 소리 듣기 (스크럽)" on={scrub} onChange={(scrubSound) => set({ scrubSound })} />
+        <div className="row" style={{ justifyContent: 'space-between' }}>
+          <span className="label">음 이름</span>
+          <Seg value={naming} onChange={(noteNaming) => set({ noteNaming })} options={[{ value: 'ko', label: '도레미' }, { value: 'en', label: 'CDE' }]} />
+        </div>
+      </div>
+      <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <b>캔버스 보기</b>
+        <Toggle label="격자 표시 ( ' )" on={grid.enabled} onChange={(enabled) => set({ grid: { ...grid, enabled } })} />
+        {grid.enabled && <Slider label="격자 간격" value={grid.size} min={8} max={256} step={8} onChange={(size) => set({ grid: { ...grid, size } })} format={(v) => `${v}px`} />}
+        <Toggle label="안전 영역 표시 (가장자리 5% · 10%)" on={grid.safe} onChange={(safe) => set({ grid: { ...grid, safe } })} />
+        <Toggle label="좌우 반전 보기 (M) — 그림 비율 확인용" on={flipView} onChange={(flipView) => set({ flipView })} />
+      </div>
+    </>
+  );
+}
+
+export function SettingsDialog({ onClose, tab: initialTab }: { onClose: () => void; tab?: 'project' | 'view' }) {
   const p = useEditor((s) => s.project)!;
   const update = useEditor((s) => s.updateSettings);
+  const [tab, setTab] = useState<'project' | 'view'>(initialTab ?? 'project');
   const [form, setForm] = useState<ProjectForm>({ name: p.name, width: p.width, height: p.height, fps: p.fps, background: p.background });
   return (
     <Modal
       wide
       icon={<Settings size={18} />}
-      title="작품 설정"
+      title="설정"
       sub={`${p.frames.length}프레임 · ${(p.frames.length / form.fps).toFixed(2)}초 (현재 ${form.fps}fps 기준)`}
       onClose={onClose}
       footer={
-        <>
-          <button className="btn ghost" onClick={onClose}>
-            취소
+        tab === 'project' ? (
+          <>
+            <button className="btn ghost" onClick={onClose}>
+              취소
+            </button>
+            <button
+              className="btn primary"
+              onClick={() => {
+                update({ ...form, name: form.name.trim() || p.name });
+                onClose();
+              }}
+            >
+              적용
+            </button>
+          </>
+        ) : (
+          <button className="btn primary" onClick={onClose}>
+            완료
           </button>
-          <button
-            className="btn primary"
-            onClick={() => {
-              update({ ...form, name: form.name.trim() || p.name });
-              onClose();
-            }}
-          >
-            적용
-          </button>
-        </>
+        )
       }
     >
-      <FormBody form={form} setForm={setForm} lockSize />
+      <Seg value={tab} onChange={setTab} options={[{ value: 'project', label: '작품 (크기 · FPS)' }, { value: 'view', label: '보기 (겹쳐 보기 · 격자)' }]} />
+      {tab === 'project' ? <FormBody form={form} setForm={setForm} lockSize /> : <ViewSettings />}
     </Modal>
   );
 }

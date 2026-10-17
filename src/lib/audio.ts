@@ -181,6 +181,24 @@ export function analyzeFrames(track: AudioTrack, fps: number, frameCount: number
   return out;
 }
 
+/** 박자(소리가 갑자기 커지는 지점) 프레임 표시 */
+export function detectBeats(sounds: (FrameSound | null)[], minGap = 3): boolean[] {
+  const out = sounds.map(() => false);
+  let last = -minGap;
+  for (let i = 1; i < sounds.length; i++) {
+    const a = sounds[i - 1]?.level ?? 0;
+    const b = sounds[i]?.level ?? 0;
+    const next = sounds[i + 1]?.level ?? 0;
+    if (b > 0.25 && b - a > 0.12 && b >= next && i - last >= minGap) {
+      out[i] = true;
+      last = i;
+    }
+  }
+  // 첫 프레임이 소리로 시작하면 박자로 본다
+  if ((sounds[0]?.level ?? 0) > 0.25) out[0] = true;
+  return out;
+}
+
 /** 파형 표시용: 구간별 [min, max] */
 export function framePeaks(track: AudioTrack, fps: number, frameCount: number, perFrame: number): Float32Array {
   const { data, rate } = getMono(track.buffer);
@@ -223,28 +241,30 @@ export function stopAudio() {
   }
 }
 
-/** fromFrame 부터 untilFrame(제외)까지 재생 */
-export function playAudioFrom(track: AudioTrack, fps: number, fromFrame: number, untilFrame: number) {
+/** fromFrame 부터 untilFrame(제외)까지 재생. rate = 재생 속도 */
+export function playAudioFrom(track: AudioTrack, fps: number, fromFrame: number, untilFrame: number, rate = 1) {
   stopAudio();
   if (track.muted) return;
   const ac = audioCtx();
   const src = ac.createBufferSource();
   src.buffer = track.buffer;
+  src.playbackRate.value = rate;
   const gain = ac.createGain();
   gain.gain.value = track.volume;
   src.connect(gain).connect(ac.destination);
   const now = ac.currentTime + 0.02;
   const t = audioTimeAtFrame(track, fromFrame, fps);
-  const total = (untilFrame - fromFrame) / fps;
+  const tEnd = audioTimeAtFrame(track, untilFrame, fps);
   let when = now;
   let offset = t;
   if (t < track.trim) {
-    when = now + (track.trim - t);
+    // 음악 시작 전 구간은 실제 시간으로 기다린다
+    when = now + (track.trim - t) / rate;
     offset = track.trim;
   }
-  const remain = total - (when - now);
-  if (remain <= 0 || offset >= track.buffer.duration) return;
-  src.start(when, offset, remain);
+  const dur = tEnd - offset;
+  if (dur <= 0 || offset >= track.buffer.duration) return;
+  src.start(when, offset, dur);
   current = { src, gain };
 }
 

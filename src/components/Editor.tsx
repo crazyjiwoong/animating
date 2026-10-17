@@ -18,12 +18,14 @@ import { SettingsDialog } from './dialogs/ProjectDialogs';
 import { ExportDialog } from './dialogs/ExportDialog';
 import { ShortcutsDialog } from './dialogs/ShortcutsDialog';
 import { ImageImportDialog } from './dialogs/ImageImportDialog';
+import { TweenDialog } from './dialogs/TweenDialog';
 import type { Tool } from '../types';
 
-const TOOL_KEYS: Record<string, Tool> = { b: 'brush', e: 'eraser', v: 'move', g: 'fill', i: 'picker', h: 'hand' };
+const TOOL_KEYS: Record<string, Tool> = { b: 'brush', e: 'eraser', u: 'shape', v: 'move', g: 'fill', i: 'picker', h: 'hand' };
 
 function usePlayback() {
   const playing = useEditor((s) => s.playing);
+  const playSpeed = useEditor((s) => s.playSpeed);
   useEffect(() => {
     if (!playing) {
       stopAudio();
@@ -35,8 +37,9 @@ function usePlayback() {
     let from = st.frameIndex >= n - 1 ? 0 : st.frameIndex;
     let t0 = performance.now();
     const startAudio = () => {
-      const pr = useEditor.getState().project!;
-      if (pr.audio) playAudioFrom(pr.audio, pr.fps, from, pr.frames.length);
+      const s = useEditor.getState();
+      const pr = s.project!;
+      if (pr.audio) playAudioFrom(pr.audio, pr.fps, from, pr.frames.length, s.playSpeed);
     };
     startAudio();
     st.setFrame(from);
@@ -46,7 +49,7 @@ function usePlayback() {
       const s = useEditor.getState();
       const pr = s.project!;
       const total = pr.frames.length;
-      const f = from + Math.floor(((now - t0) / 1000) * pr.fps);
+      const f = from + Math.floor(((now - t0) / 1000) * pr.fps * s.playSpeed);
       if (f >= total) {
         if (s.loop && total > 1) {
           from = 0;
@@ -66,7 +69,7 @@ function usePlayback() {
       cancelAnimationFrame(raf);
       stopAudio();
     };
-  }, [playing]);
+  }, [playing, playSpeed]);
 }
 
 export function Editor({ onExit }: { onExit: () => void }) {
@@ -226,6 +229,17 @@ export function Editor({ onExit }: { onExit: () => void }) {
           s.set({ [key]: { ...b, size } } as never);
           break;
         }
+        case 't':
+        case 'T':
+          s.set({ dialog: { type: 'tween' } });
+          break;
+        case 'm':
+        case 'M':
+          s.set({ flipView: !s.flipView });
+          break;
+        case "'":
+          s.set({ grid: { ...s.grid, enabled: !s.grid.enabled } });
+          break;
         case 'o':
         case 'O':
           s.set({ onion: { ...s.onion, enabled: !s.onion.enabled } });
@@ -278,10 +292,11 @@ export function Editor({ onExit }: { onExit: () => void }) {
       </div>
       <Timeline />
       {dialog?.type === 'frame' && <FrameDialog index={dialog.index} onClose={close} />}
-      {dialog?.type === 'settings' && <SettingsDialog onClose={close} />}
+      {dialog?.type === 'settings' && <SettingsDialog onClose={close} tab={dialog.tab} />}
       {dialog?.type === 'export' && <ExportDialog onClose={close} />}
       {dialog?.type === 'shortcuts' && <ShortcutsDialog onClose={close} />}
       {dialog?.type === 'imageImport' && <ImageImportDialog files={dialog.files} onClose={close} />}
+      {dialog?.type === 'tween' && <TweenDialog onClose={close} />}
       <Toasts />
     </div>
   );

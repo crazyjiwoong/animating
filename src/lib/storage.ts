@@ -3,6 +3,7 @@ import type { Asset, Cel, Frame, Layer, Project, ProjectMeta, Transform } from '
 import { blobToCanvas, canvasToBlob } from './canvas';
 import { renderThumb } from './render';
 import { decodeAudio } from './audio';
+import { uid } from './id';
 
 const projectsDb = createStore('frameflow-projects', 'projects');
 const metaDb = createStore('frameflow-meta', 'meta');
@@ -10,6 +11,7 @@ const metaDb = createStore('frameflow-meta', 'meta');
 /* 저장 형식: 비트맵은 Blob, 나머지는 평범한 객체 */
 interface StoredCel {
   kind: 'raster' | 'image';
+  key?: string;
   png?: Blob;
   assetId?: string;
   t?: Transform;
@@ -49,10 +51,10 @@ export async function serialize(p: Project): Promise<StoredProject> {
       await Promise.all(
         Object.entries(f.cels).map(async ([lid, c]) => {
           if (!p.layers.some((l) => l.id === lid)) return;
-          if (c.kind === 'raster') cels[lid] = { kind: 'raster', png: await pngOf(c.canvas) };
+          if (c.kind === 'raster') cels[lid] = { kind: 'raster', key: c.key, png: await pngOf(c.canvas) };
           else {
             used.add(c.assetId);
-            cels[lid] = { kind: 'image', assetId: c.assetId, t: c.t };
+            cels[lid] = { kind: 'image', key: c.key, assetId: c.assetId, t: c.t };
           }
         }),
       );
@@ -88,23 +90,41 @@ export async function deserialize(s: StoredProject): Promise<Project> {
       assets[a.id] = { id: a.id, name: a.name, blob: a.blob, bitmap, width: bitmap.width, height: bitmap.height };
     }),
   );
+  // 같은 PNG(길게 늘린 그림)는 캔버스 하나를 공유한다
+  const decoded = new Map<Blob, Promise<HTMLCanvasElement>>();
+  const canvasOf = (b: Blob) => {
+    let c = decoded.get(b);
+    if (!c) {
+      c = blobToCanvas(b).then((canvas) => (pngCache.set(canvas, Promise.resolve(b)), canvas));
+      decoded.set(b, c);
+    }
+    return c;
+  };
+  const shared = new Map<string, Cel>();
   const frames: Frame[] = await Promise.all(
     s.frames.map(async (f) => {
       const cels: Record<string, Cel> = {};
       await Promise.all(
         Object.entries(f.cels).map(async ([lid, c]) => {
+          const key = c.key ?? uid('c_');
           if (c.kind === 'raster' && c.png) {
-            const canvas = await blobToCanvas(c.png);
-            pngCache.set(canvas, Promise.resolve(c.png));
-            cels[lid] = { kind: 'raster', canvas };
+            cels[lid] = { kind: 'raster', key, canvas: await canvasOf(c.png) };
           } else if (c.kind === 'image' && c.assetId && c.t && assets[c.assetId]) {
-            cels[lid] = { kind: 'image', assetId: c.assetId, t: c.t };
+            cels[lid] = { kind: 'image', key, assetId: c.assetId, t: c.t };
           }
         }),
       );
       return { id: f.id, memo: f.memo, cels };
     }),
   );
+  // key 가 같은 셀은 같은 객체로
+  for (const f of frames)
+    for (const [lid, c] of Object.entries(f.cels)) {
+      const id = `${lid}:${c.key}`;
+      const hit = shared.get(id);
+      if (hit) f.cels[lid] = hit;
+      else shared.set(id, c);
+    }
   let audio: Project['audio'] = null;
   if (s.audio) {
     try {
@@ -184,10 +204,15 @@ const MAGIC = 'FFANIM01';
 export async function exportProjectFile(p: Project): Promise<Blob> {
   const stored = await serialize(p);
   const blobs: Blob[] = [];
+  const index = new Map<Blob, number>();
   const replacer = (_k: string, v: unknown) => {
     if (v instanceof Blob) {
-      blobs.push(v);
-      return { $blob: blobs.length - 1, type: v.type };
+      // 같은 Blob 은 한 번만 저장
+      if (!index.has(v)) {
+        blobs.push(v);
+        index.set(v, blobs.length - 1);
+      }
+      return { $blob: index.get(v), type: v.type };
     }
     return v;
   };
@@ -217,10 +242,12 @@ export async function importProjectFile(file: Blob): Promise<Project> {
     offsets.push(off);
     off += s;
   }
+  const made = new Map<number, Blob>();
   const stored = JSON.parse(json, (_k, v) => {
     if (v && typeof v === 'object' && typeof v.$blob === 'number') {
       const i = v.$blob as number;
-      return new Blob([buf.slice(offsets[i], offsets[i] + header.sizes[i])], { type: v.type });
+      if (!made.has(i)) made.set(i, new Blob([buf.slice(offsets[i], offsets[i] + header.sizes[i])], { type: v.type }));
+      return made.get(i);
     }
     return v;
   }) as StoredProject;

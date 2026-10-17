@@ -30,11 +30,25 @@ export interface BrushSettings {
 
 export type Dialog =
   | { type: 'frame'; index: number }
-  | { type: 'settings' }
+  | { type: 'settings'; tab?: 'project' | 'view' }
   | { type: 'export' }
   | { type: 'shortcuts' }
   | { type: 'audio' }
-  | { type: 'imageImport'; files: File[] };
+  | { type: 'imageImport'; files: File[] }
+  | { type: 'tween' };
+
+export type ShapeKind = 'line' | 'rect' | 'ellipse';
+export type Easing = 'linear' | 'in' | 'out' | 'inout';
+export interface OnionSettings {
+  enabled: boolean;
+  before: number;
+  after: number;
+  opacity: number;
+  /** plain = 원래 색 그대로 반투명, tint = 이전 빨강/다음 파랑 */
+  mode: 'plain' | 'tint';
+  /** 길게 늘린(같은) 그림은 건너뛰고 이전 '다른' 그림을 보여준다 */
+  skipSame: boolean;
+}
 
 interface CelClipboard {
   cel: Cel;
@@ -56,7 +70,12 @@ export interface EditorState {
   fill: { tolerance: number; allLayers: boolean };
   color: string;
   recentColors: string[];
-  onion: { enabled: boolean; before: number; after: number; opacity: number };
+  onion: OnionSettings;
+  shape: { kind: ShapeKind; fill: boolean };
+  grid: { enabled: boolean; size: number; safe: boolean };
+  flipView: boolean;
+  playSpeed: number;
+  exposureMode: 'ripple' | 'overwrite';
   playing: boolean;
   loop: boolean;
   scrubSound: boolean;
@@ -104,6 +123,9 @@ export interface EditorState {
 
   /* ---- 셀 ---- */
   setCel: (frameIndex: number, layerId: string, cel: Cel | null, label: string, key?: string) => void;
+  setExposure: (layerId: string, start: number, end: number, length: number, mode?: 'ripple' | 'overwrite') => void;
+  splitRun: (layerId: string, frameIndex: number) => void;
+  tween: (layerId: string, from: number, to: number, easing: Easing) => void;
   setTransform: (frameIndex: number, layerId: string, t: Partial<Transform>, key?: string) => void;
   copyCel: () => void;
   pasteCel: () => void;
@@ -152,11 +174,43 @@ export function makeProject(opts: { name: string; width: number; height: number;
 }
 
 function cloneFrame(f: Frame): Frame {
-  // 셀은 불변이므로 얕은 복사로 충분 (이미지 변형만 별도 객체로)
+  // 비트맵은 불변이므로 공유하고, key 는 새로 줘서 복제본을 따로 편집할 수 있게 한다
   const cels: Record<string, Cel> = {};
-  for (const [k, c] of Object.entries(f.cels)) cels[k] = c.kind === 'image' ? { ...c, t: { ...c.t } } : c;
+  for (const [k, c] of Object.entries(f.cels)) cels[k] = c.kind === 'image' ? { ...c, key: uid('c_'), t: { ...c.t } } : { ...c, key: uid('c_') };
   return { id: uid('f_'), cels, memo: f.memo };
 }
+
+/** frameIndex 의 셀과 같은 그림(key)이 이어지는 구간 [start, end] */
+export function runAt(frames: Frame[], layerId: string, frameIndex: number): [number, number] {
+  const key = frames[frameIndex]?.cels[layerId]?.key;
+  if (!key) return [frameIndex, frameIndex];
+  let a = frameIndex;
+  while (a > 0 && frames[a - 1].cels[layerId]?.key === key) a--;
+  let b = frameIndex;
+  while (b < frames.length - 1 && frames[b + 1].cels[layerId]?.key === key) b++;
+  return [a, b];
+}
+
+/** 프레임 배열에서 한 레이어의 셀 열을 바꿔 끼운다 (필요하면 프레임 추가) */
+function writeColumn(frames: Frame[], layerId: string, col: (Cel | undefined)[]): Frame[] {
+  const out = [...frames];
+  while (out.length < col.length) out.push({ id: uid('f_'), cels: {} });
+  return out.map((f, i) => {
+    const c = col[i];
+    if (f.cels[layerId] === c) return f;
+    const cels = { ...f.cels };
+    if (c) cels[layerId] = c;
+    else delete cels[layerId];
+    return { ...f, cels };
+  });
+}
+
+export const EASINGS: Record<Easing, (t: number) => number> = {
+  linear: (t) => t,
+  in: (t) => t * t,
+  out: (t) => 1 - (1 - t) * (1 - t),
+  inout: (t) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2),
+};
 
 function nextLayerName(layers: Layer[], base: string) {
   let n = layers.length + 1;
@@ -180,7 +234,12 @@ export const useEditor = create<EditorState>((set, get) => ({
   fill: { tolerance: 24, allLayers: true },
   color: '#1d1f2b',
   recentColors: ['#1d1f2b', '#ffffff', '#ff5d73', '#ffb340', '#ffd23f', '#5ee38c', '#45b8ff', '#8b7bff'],
-  onion: { enabled: true, before: 1, after: 1, opacity: 0.35 },
+  onion: { enabled: true, before: 1, after: 0, opacity: 0.3, mode: 'plain', skipSame: true },
+  shape: { kind: 'rect', fill: false },
+  grid: { enabled: false, size: 64, safe: false },
+  flipView: false,
+  playSpeed: 1,
+  exposureMode: 'ripple',
   playing: false,
   loop: true,
   scrubSound: true,
@@ -336,12 +395,18 @@ export const useEditor = create<EditorState>((set, get) => ({
     const idx = p.layers.findIndex((l) => l.id === id);
     const src = p.layers[idx];
     const copy: Layer = { ...src, id: uid('l_'), name: `${src.name} 복사` };
+    const keyMap = new Map<string, string>();
+    const newKey = (k?: string) => {
+      if (!k) return uid('c_');
+      if (!keyMap.has(k)) keyMap.set(k, uid('c_'));
+      return keyMap.get(k)!;
+    };
     s.commit('레이어 복제', (p) => ({
       layers: [...p.layers.slice(0, idx + 1), copy, ...p.layers.slice(idx + 1)],
       frames: p.frames.map((f) => {
         const c = f.cels[id];
         if (!c) return f;
-        return { ...f, cels: { ...f.cels, [copy.id]: c.kind === 'image' ? { ...c, t: { ...c.t } } : c } };
+        return { ...f, cels: { ...f.cels, [copy.id]: c.kind === 'image' ? { ...c, key: newKey(c.key), t: { ...c.t } } : { ...c, key: newKey(c.key) } } };
       }),
     }));
     set({ layerId: copy.id });
@@ -384,6 +449,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     }
     const upper = p.layers[idx];
     const lower = p.layers[idx - 1];
+    const merged = new Map<string, Cel>();
     s.commit('아래 레이어와 합치기', (p) => ({
       layers: p.layers.filter((l) => l.id !== upper.id).map((l) => (l.id === lower.id ? { ...l, kind: 'raster' as const } : l)),
       frames: p.frames.map((f) => {
@@ -392,6 +458,11 @@ export const useEditor = create<EditorState>((set, get) => ({
         const cels = { ...f.cels };
         delete cels[upper.id];
         if (!a && !b) return { ...f, cels };
+        const pair = a?.key || b?.key ? `${a?.key ?? '-'}|${b?.key ?? '-'}` : null;
+        if (pair && merged.has(pair)) {
+          cels[lower.id] = merged.get(pair)!;
+          return { ...f, cels };
+        }
         const c = createCanvas(p.width, p.height);
         const ctx = ctx2d(c);
         if (a) drawCel(ctx, p, a);
@@ -400,7 +471,9 @@ export const useEditor = create<EditorState>((set, get) => ({
           ctx.globalCompositeOperation = upper.blend;
           drawCel(ctx, p, b);
         }
-        cels[lower.id] = { kind: 'raster', canvas: c };
+        const cel: Cel = { kind: 'raster', key: uid('c_'), canvas: c };
+        if (pair) merged.set(pair, cel);
+        cels[lower.id] = cel;
         return { ...f, cels };
       }),
     }));
@@ -409,14 +482,19 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   rasterizeLayer: (id) => {
     const s = get();
+    const done = new Map<string, Cel>();
     s.commit('래스터화', (p) => ({
       layers: p.layers.map((l) => (l.id === id ? { ...l, kind: 'raster' as const } : l)),
       frames: p.frames.map((f) => {
         const cel = f.cels[id];
         if (!cel || cel.kind === 'raster') return f;
+        const hit = cel.key && done.get(cel.key);
+        if (hit) return { ...f, cels: { ...f.cels, [id]: hit } };
         const c = createCanvas(p.width, p.height);
         drawCel(ctx2d(c), p, cel);
-        return { ...f, cels: { ...f.cels, [id]: { kind: 'raster', canvas: c } } };
+        const out: Cel = { kind: 'raster', key: cel.key ?? uid('c_'), canvas: c };
+        if (cel.key) done.set(cel.key, out);
+        return { ...f, cels: { ...f.cels, [id]: out } };
       }),
     }));
   },
@@ -491,17 +569,95 @@ export const useEditor = create<EditorState>((set, get) => ({
   setCel: (frameIndex, layerId, cel, label, key) => {
     get().commit(
       label,
-      (p) => ({
-        frames: p.frames.map((f, i) => {
-          if (i !== frameIndex) return f;
-          const cels = { ...f.cels };
-          if (cel) cels[layerId] = cel;
-          else delete cels[layerId];
-          return { ...f, cels };
-        }),
-      }),
+      (p) => {
+        // 길게 늘린 그림이면 그 구간 전체가 함께 바뀐다
+        const [a, b] = runAt(p.frames, layerId, frameIndex);
+        const old = p.frames[frameIndex]?.cels[layerId];
+        const next: Cel | null = cel ? { ...cel, key: old?.key ?? uid('c_') } : null;
+        return {
+          frames: p.frames.map((f, i) => {
+            if (i < a || i > b) return f;
+            const cels = { ...f.cels };
+            if (next) cels[layerId] = next;
+            else delete cels[layerId];
+            return { ...f, cels };
+          }),
+        };
+      },
       key ? { key } : undefined,
     );
+  },
+
+  setExposure: (layerId, start, end, length, mode) => {
+    const s = get();
+    const p = s.project!;
+    const cel = p.frames[start]?.cels[layerId];
+    if (!cel) return;
+    const len = clamp(Math.round(length), 1, 5000);
+    if (len === end - start + 1) return;
+    const m = mode ?? s.exposureMode;
+    const col: (Cel | undefined)[] = p.frames.map((f) => f.cels[layerId]);
+    let next: (Cel | undefined)[];
+    if (m === 'ripple') {
+      next = [...col.slice(0, start), ...Array<Cel>(len).fill(cel), ...col.slice(end + 1)];
+    } else {
+      next = [...col];
+      for (let i = start; i < start + len; i++) next[i] = cel;
+      for (let i = start + len; i <= end; i++) next[i] = undefined;
+    }
+    s.commit('노출 길이', (p) => ({ frames: writeColumn(p.frames, layerId, next) }));
+  },
+
+  splitRun: (layerId, frameIndex) => {
+    const s = get();
+    const p = s.project!;
+    const [a, b] = runAt(p.frames, layerId, frameIndex);
+    if (a === b) return;
+    const cel = p.frames[frameIndex].cels[layerId]!;
+    // 앞쪽은 그대로, frameIndex 부터는 새 그림으로 (frameIndex 가 첫 칸이면 그 칸만 분리)
+    const from = frameIndex === a ? a + 1 : frameIndex;
+    const piece: Cel = cel.kind === 'image' ? { ...cel, key: uid('c_'), t: { ...cel.t } } : { ...cel, key: uid('c_') };
+    s.commit('그림 나누기', (p) => ({
+      frames: p.frames.map((f, i) => (i >= from && i <= b ? { ...f, cels: { ...f.cels, [layerId]: piece } } : f)),
+    }));
+    s.toast(`프레임 ${from + 1}부터 따로 편집할 수 있어요`, 'success');
+  },
+
+  tween: (layerId, from, to, easing) => {
+    const s = get();
+    const p = s.project!;
+    const A = p.frames[from]?.cels[layerId];
+    const B = p.frames[to]?.cels[layerId];
+    if (!A || !B || A.kind !== 'image' || B.kind !== 'image') {
+      s.toast('시작·끝 프레임 모두 이 이미지 레이어에 그림이 있어야 해요', 'error');
+      return;
+    }
+    if (to - from < 2) {
+      s.toast('시작과 끝 사이에 프레임이 1장 이상 있어야 해요', 'error');
+      return;
+    }
+    const ease = EASINGS[easing];
+    // 회전은 가까운 방향으로
+    let dr = B.t.rotation - A.t.rotation;
+    if (dr > 180) dr -= 360;
+    if (dr < -180) dr += 360;
+    const lerp = (x: number, y: number, k: number) => x + (y - x) * k;
+    s.commit('자동 중간 프레임', (p) => ({
+      frames: p.frames.map((f, i) => {
+        if (i <= from || i >= to) return f;
+        const k = ease((i - from) / (to - from));
+        const t: Transform = {
+          ...A.t,
+          x: lerp(A.t.x, B.t.x, k),
+          y: lerp(A.t.y, B.t.y, k),
+          scale: lerp(A.t.scale, B.t.scale, k),
+          rotation: A.t.rotation + dr * k,
+          opacity: lerp(A.t.opacity, B.t.opacity, k),
+        };
+        return { ...f, cels: { ...f.cels, [layerId]: { kind: 'image', key: uid('c_'), assetId: A.assetId, t } } };
+      }),
+    }));
+    s.toast(`프레임 ${from + 2}~${to}의 중간 동작을 채웠어요`, 'success');
   },
 
   setTransform: (frameIndex, layerId, t, key) => {
@@ -541,7 +697,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       s.toast('래스터 셀은 래스터 레이어에만 붙여넣을 수 있어요', 'error');
       return;
     } else if (cel.kind === 'image') cel = { ...cel, t: { ...cel.t } };
-    s.setCel(s.frameIndex, layer.id, cel, '셀 붙여넣기');
+    s.setCel(s.frameIndex, layer.id, { ...cel, key: undefined }, '셀 붙여넣기');
   },
 
   copyTransformFromPrev: () => {
@@ -586,7 +742,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     const at = idx < 0 ? p.layers.length : idx + 1;
     s.commit('이미지 가져오기', (p) => ({
       layers: [...p.layers.slice(0, at), layer, ...p.layers.slice(at)],
-      frames: p.frames.map((f, i) => (i === s.frameIndex ? { ...f, cels: { ...f.cels, [layer.id]: { kind: 'image', assetId: asset.id, t: centered } } } : f)),
+      frames: p.frames.map((f, i) => (i === s.frameIndex ? { ...f, cels: { ...f.cels, [layer.id]: { kind: 'image', key: uid('c_'), assetId: asset.id, t: centered } } } : f)),
     }));
     set({ layerId: layer.id, tool: 'move' });
     s.toast('이미지를 새 레이어로 가져왔어요 · 이동 도구로 위치를 조절하세요', 'success');
@@ -611,7 +767,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       while (frames.length < startF + assets.length) frames.push({ id: uid('f_'), cels: {} });
       assets.forEach((a, k) => {
         const f = frames[startF + k];
-        frames[startF + k] = { ...f, cels: { ...f.cels, [layer.id]: { kind: 'image', assetId: a.id, t: { ...DEFAULT_T, x: p.width / 2, y: p.height / 2, scale: fit } } } };
+        frames[startF + k] = { ...f, cels: { ...f.cels, [layer.id]: { kind: 'image', key: uid('c_'), assetId: a.id, t: { ...DEFAULT_T, x: p.width / 2, y: p.height / 2, scale: fit } } } };
       });
       return { layers: [...p.layers.slice(0, at), layer, ...p.layers.slice(at)], frames };
     });
@@ -644,17 +800,23 @@ export const useEditor = create<EditorState>((set, get) => ({
       if (!resized) return patch;
       const dx = (w - p.width) / 2;
       const dy = (h - p.height) / 2;
+      const done = new Map<Cel, Cel>();
       return {
         ...patch,
         frames: p.frames.map((f) => {
           const cels: Record<string, Cel> = {};
           for (const [k, c] of Object.entries(f.cels)) {
-            if (c.kind === 'image') cels[k] = { ...c, t: { ...c.t, x: c.t.x + dx, y: c.t.y + dy } };
-            else {
-              const nc = createCanvas(w, h);
-              ctx2d(nc).drawImage(c.canvas, dx, dy);
-              cels[k] = { kind: 'raster', canvas: nc };
+            let n = done.get(c);
+            if (!n) {
+              if (c.kind === 'image') n = { ...c, t: { ...c.t, x: c.t.x + dx, y: c.t.y + dy } };
+              else {
+                const nc = createCanvas(w, h);
+                ctx2d(nc).drawImage(c.canvas, dx, dy);
+                n = { kind: 'raster', key: c.key, canvas: nc };
+              }
+              done.set(c, n);
             }
+            cels[k] = n;
           }
           return { ...f, cels };
         }),
@@ -685,3 +847,42 @@ export function currentLayer(s: EditorState): Layer | undefined {
 export function currentCel(s: EditorState): Cel | undefined {
   return s.project?.frames[s.frameIndex]?.cels[s.layerId];
 }
+
+/* ---------------------------------------------------------------- 환경 설정 저장 */
+
+const PREF_KEYS = [
+  'onion', 'shape', 'grid', 'playSpeed', 'exposureMode', 'noteNaming', 'scrubSound', 'timelineCol', 'timelineH',
+  'brush', 'eraser', 'fill', 'recentColors', 'loop',
+] as const;
+const PREF_STORAGE = 'frameflow-prefs';
+
+try {
+  const saved = JSON.parse(localStorage.getItem(PREF_STORAGE) || '{}') as Partial<EditorState>;
+  const init = useEditor.getState();
+  const patch: Record<string, unknown> = {};
+  for (const k of PREF_KEYS) {
+    const v = saved[k];
+    if (v === undefined || v === null) continue;
+    const def = init[k];
+    // 객체 설정은 기본값과 합쳐서 새로 생긴 항목도 채운다
+    patch[k] = typeof def === 'object' && !Array.isArray(def) ? { ...(def as object), ...(v as object) } : v;
+  }
+  useEditor.setState(patch as Partial<EditorState>);
+} catch {
+  /* 저장소 사용 불가 */
+}
+
+let prefTimer = 0;
+useEditor.subscribe((s, prev) => {
+  if (!PREF_KEYS.some((k) => s[k] !== prev[k])) return;
+  clearTimeout(prefTimer);
+  prefTimer = window.setTimeout(() => {
+    try {
+      const out: Record<string, unknown> = {};
+      for (const k of PREF_KEYS) out[k] = useEditor.getState()[k];
+      localStorage.setItem(PREF_STORAGE, JSON.stringify(out));
+    } catch {
+      /* noop */
+    }
+  }, 400);
+});

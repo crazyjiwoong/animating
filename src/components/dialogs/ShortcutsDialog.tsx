@@ -2,7 +2,7 @@ import { Keyboard } from 'lucide-react';
 import { Modal } from '../ui';
 
 const LIST: [string, string][] = [
-  ['브러시 / 지우개', 'B / E'],
+  ['브러시 / 지우개 / 도형', 'B / E / U'],
   ['이동·변형 / 채우기', 'V / G'],
   ['스포이드 / 손', 'I / H'],
   ['임시 손 도구', 'Space 누른 채 드래그'],
@@ -21,9 +21,12 @@ const LIST: [string, string][] = [
   ['실행 취소 / 다시 실행', 'Ctrl + Z / Ctrl + Shift + Z'],
   ['저장', 'Ctrl + S'],
   ['내보내기', 'Ctrl + E'],
-  ['어니언 스킨', 'O'],
+  ['이전 프레임 겹쳐 보기', 'O'],
   ['화면 맞춤 / 확대 / 축소', '0 / + / -'],
   ['프레임 설정', '프레임 두 번 누르기'],
+  ['그림 길이 조절', '타임라인 막대 끝 끌기 · 우클릭 메뉴'],
+  ['자동 중간 프레임 (트윈)', 'T'],
+  ['격자 / 좌우 반전 보기', "' / M"],
 ];
 
 export function ShortcutsDialog({ onClose }: { onClose: () => void }) {

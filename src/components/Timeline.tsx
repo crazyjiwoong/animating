@@ -1,26 +1,18 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Play, Pause, SkipBack, SkipForward, ChevronLeft, ChevronRight, Repeat, Ghost, Plus, CopyPlus, Trash2, Music, Eye, EyeOff,
-  Volume2, VolumeX, SlidersHorizontal, Settings2,
+  Volume2, VolumeX, SlidersHorizontal, Settings2, ArrowRightToLine, ArrowLeftToLine, MoveHorizontal, Scissors,
 } from 'lucide-react';
-import type { AudioTrack, Cel, Frame, Layer, FrameSound } from '../types';
-import { useEditor } from '../store/editor';
+import type { AudioTrack, Frame, Layer, FrameSound } from '../types';
+import { useEditor, runAt } from '../store/editor';
 import { renderThumb } from '../lib/render';
-import { analyzeFrames, framePeaks, noteColor, noteName, playTone, formatTime } from '../lib/audio';
+import { analyzeFrames, detectBeats, framePeaks, noteColor, noteName, playTone, formatTime } from '../lib/audio';
 import { pickFile } from '../lib/id';
 import { importAudioFile } from '../lib/importers';
 import { trackPointer } from '../lib/drag';
 import { Slider, Toggle } from './ui';
 
 export const LABEL_W = 168;
-
-function sameCel(a?: Cel, b?: Cel) {
-  if (!a || !b) return false;
-  if (a.kind === 'raster' && b.kind === 'raster') return a.canvas === b.canvas;
-  if (a.kind === 'image' && b.kind === 'image')
-    return a.assetId === b.assetId && a.t.x === b.t.x && a.t.y === b.t.y && a.t.scale === b.t.scale && a.t.rotation === b.t.rotation && a.t.opacity === b.t.opacity;
-  return false;
-}
 
 /* ---------------------------------------------------------------- 분석 결과 공유 */
 
@@ -61,6 +53,30 @@ const FrameThumb = memo(function FrameThumb(props: { index: number; frame: Frame
 
 /* ---------------------------------------------------------------- 레이어 행 */
 
+interface Run {
+  a: number;
+  b: number;
+}
+/** 같은 그림(key)이 이어지는 구간들 */
+function computeRuns(frames: Frame[], layerId: string): Run[] {
+  const runs: Run[] = [];
+  for (let i = 0; i < frames.length; i++) {
+    const c = frames[i].cels[layerId];
+    if (!c) continue;
+    const last = runs[runs.length - 1];
+    if (last && last.b === i - 1 && c.key && frames[i - 1].cels[layerId]?.key === c.key) last.b = i;
+    else runs.push({ a: i, b: i });
+  }
+  return runs;
+}
+
+export interface RunMenu {
+  x: number;
+  y: number;
+  layerId: string;
+  frame: number;
+}
+
 const LayerRow = memo(function LayerRow(props: {
   layer: Layer;
   frames: Frame[];
@@ -72,13 +88,15 @@ const LayerRow = memo(function LayerRow(props: {
   cur: number;
   onCell: (frame: number, layerId: string) => void;
   onTap: (frame: number) => void;
+  onMenu: (m: RunMenu) => void;
+  rawFrameAt: (clientX: number) => number;
 }) {
   const { layer, frames, start, end, col } = props;
   const update = useEditor((s) => s.updateLayer);
+  const runs = useMemo(() => computeRuns(frames, layer.id), [frames, layer.id]);
+  const [drag, setDrag] = useState<{ a: number; b: number; len: number } | null>(null);
   const cells = [];
   for (let i = start; i < end; i++) {
-    const c = frames[i].cels[layer.id];
-    const same = sameCel(c, frames[i - 1]?.cels[layer.id]);
     cells.push(
       <div
         key={i}
@@ -86,13 +104,49 @@ const LayerRow = memo(function LayerRow(props: {
         style={{ width: col }}
         onPointerDown={() => props.onCell(i, layer.id)}
         onPointerUp={() => props.onTap(i)}
-      >
-        {c && <div className={'cel' + (same ? ' same' : '')} style={{ background: layer.color, opacity: layer.visible ? undefined : 0.25 }} />}
-      </div>,
+        onContextMenu={(e) => {
+          e.preventDefault();
+          if (frames[i].cels[layer.id]) props.onMenu({ x: e.clientX, y: e.clientY, layerId: layer.id, frame: i });
+        }}
+      />,
     );
   }
+  const startHandle = (e: React.PointerEvent, r: Run) => {
+    e.stopPropagation();
+    e.preventDefault();
+    useEditor.getState().setLayer(layer.id);
+    let len = r.b - r.a + 1;
+    setDrag({ ...r, len });
+    trackPointer(
+      e,
+      (ev) => {
+        len = Math.max(1, props.rawFrameAt(ev.clientX) - r.a + 1);
+        setDrag({ ...r, len });
+      },
+      (ev) => {
+        setDrag(null);
+        if (ev) useEditor.getState().setExposure(layer.id, r.a, r.b, len);
+      },
+    );
+  };
+  const blocks = runs
+    .filter((r) => r.b >= start - 1 && r.a <= end)
+    .map((r) => {
+      const len = r.b - r.a + 1;
+      const dragging = drag && drag.a === r.a;
+      return (
+        <div
+          key={r.a}
+          className={'run' + (dragging ? ' dragging' : '')}
+          style={{ left: LABEL_W + r.a * col + 2, width: len * col - 4, background: layer.color, opacity: layer.visible ? undefined : 0.3 }}
+        >
+          {len > 1 && col * len > 26 && <span className="run-len">{len}</span>}
+          <span className="run-h" onPointerDown={(e) => startHandle(e, r)} title="끌어서 이 그림이 나오는 길이 조절" />
+        </div>
+      );
+    });
   return (
-    <div className="tl-row">
+    <div className="tl-row layer-row">
       <div className={'tl-label' + (props.selected ? ' sel' : '')} style={{ width: LABEL_W }} onPointerDown={() => useEditor.getState().setLayer(layer.id)}>
         <span className="tag" style={{ background: layer.color }} />
         <span className="nm">{layer.name}</span>
@@ -102,9 +156,62 @@ const LayerRow = memo(function LayerRow(props: {
       </div>
       <div style={{ width: start * col, flex: 'none' }} />
       {cells}
+      {blocks}
+      {drag && (
+        <div className="run-ghost" style={{ left: LABEL_W + drag.a * col + 2, width: drag.len * col - 4 }}>
+          <span className="run-tip">
+            {drag.len}프레임 · {(drag.len / (useEditor.getState().project?.fps ?? 12)).toFixed(2)}초
+          </span>
+        </div>
+      )}
     </div>
   );
 });
+
+function RunMenuView({ menu, onClose }: { menu: RunMenu; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const st = useEditor.getState();
+  const p = st.project!;
+  const [a, b] = runAt(p.frames, menu.layerId, menu.frame);
+  const len = b - a + 1;
+  useEffect(() => {
+    const h = (e: PointerEvent) => !ref.current?.contains(e.target as Node) && onClose();
+    window.addEventListener('pointerdown', h);
+    return () => window.removeEventListener('pointerdown', h);
+  }, [onClose]);
+  const act = (fn: () => void) => () => {
+    fn();
+    onClose();
+  };
+  return (
+    <div ref={ref} className="dropdown" style={{ position: 'fixed', left: Math.min(menu.x, window.innerWidth - 250), top: Math.max(8, menu.y - 250) }}>
+      <div className="muted" style={{ padding: '6px 10px', fontSize: 11.5 }}>
+        프레임 {a + 1}~{b + 1} · {len}프레임 동안 보임
+      </div>
+      <button onClick={act(() => st.setExposure(menu.layerId, a, b, p.frames.length - a, 'overwrite'))}>
+        <ArrowRightToLine size={15} /> 끝까지 늘리기
+      </button>
+      <button
+        onClick={act(() => {
+          const v = prompt('몇 프레임 동안 보이게 할까요?', String(len));
+          if (v && Number(v) > 0) st.setExposure(menu.layerId, a, b, Number(v));
+        })}
+      >
+        <MoveHorizontal size={15} /> 길이 직접 입력…
+      </button>
+      <button onClick={act(() => st.setExposure(menu.layerId, a, b, 1))} disabled={len === 1}>
+        <ArrowLeftToLine size={15} /> 1프레임으로 줄이기
+      </button>
+      <hr />
+      <button onClick={act(() => st.splitRun(menu.layerId, menu.frame))} disabled={len === 1}>
+        <Scissors size={15} /> 여기서 나누기 (따로 편집)
+      </button>
+      <button onClick={act(() => st.setCel(menu.frame, menu.layerId, null, '그림 지우기'))}>
+        <Trash2 size={15} /> 이 그림 지우기
+      </button>
+    </div>
+  );
+}
 
 /* ---------------------------------------------------------------- 오디오 */
 
@@ -159,6 +266,7 @@ function AudioLane({ start, end, col }: { start: number; end: number; col: numbe
 
 function NoteRow({ sounds, start, end, col, onCell }: { sounds: (FrameSound | null)[]; start: number; end: number; col: number; onCell: (i: number) => void }) {
   const naming = useEditor((s) => s.noteNaming);
+  const beats = useMemo(() => detectBeats(sounds), [sounds]);
   const cells = [];
   for (let i = start; i < end; i++) {
     const s = sounds[i];
@@ -167,6 +275,7 @@ function NoteRow({ sounds, start, end, col, onCell }: { sounds: (FrameSound | nu
     cells.push(
       <div key={i} className="note-cell" style={{ width: col }} onPointerDown={() => onCell(i)} title={s?.freq ? `${noteName(s.midi!, naming)} · ${s.freq.toFixed(1)}Hz · 음량 ${Math.round(s.level * 100)}%` : undefined}>
         {s && <div className="lv" style={{ height: `${s.level * 100}%`, background: s.midi != null ? noteColor(s.midi) : '#7d8395' }} />}
+        {beats[i] && <i className="beat" title="박자 (소리가 커지는 지점)" />}
         {s?.midi != null ? (
           <b style={{ background: noteColor(s.midi), opacity: repeat ? 0.45 : 1 }}>{col >= 40 ? noteName(s.midi, naming) : noteName(s.midi, naming, false)}</b>
         ) : s ? (
@@ -258,11 +367,22 @@ function OnionPopover({ onClose }: { onClose: () => void }) {
     return () => window.removeEventListener('pointerdown', h);
   }, [onClose]);
   return (
-    <div ref={ref} className="dropdown" style={{ bottom: 'calc(100% + 6px)', top: 'auto', width: 250, padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <Toggle label="어니언 스킨 (앞뒤 프레임 겹쳐 보기)" on={onion.enabled} onChange={(enabled) => set({ onion: { ...onion, enabled } })} />
-      <Slider label="이전 프레임 (빨강)" value={onion.before} min={0} max={5} onChange={(before) => set({ onion: { ...onion, before } })} format={(v) => `${v}장`} />
-      <Slider label="다음 프레임 (파랑)" value={onion.after} min={0} max={5} onChange={(after) => set({ onion: { ...onion, after } })} format={(v) => `${v}장`} />
+    <div ref={ref} className="dropdown" style={{ bottom: 'calc(100% + 6px)', top: 'auto', width: 260, padding: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <Toggle label="이전 프레임 겹쳐 보기" on={onion.enabled} onChange={(enabled) => set({ onion: { ...onion, enabled } })} />
       <Slider label="불투명도" value={Math.round(onion.opacity * 100)} min={5} max={90} onChange={(v) => set({ onion: { ...onion, opacity: v / 100 } })} format={(v) => `${v}%`} />
+      <div className="seg" style={{ display: 'flex' }}>
+        <button style={{ flex: 1 }} className={onion.mode === 'plain' ? 'on' : ''} onClick={() => set({ onion: { ...onion, mode: 'plain' } })}>원래 색</button>
+        <button style={{ flex: 1 }} className={onion.mode === 'tint' ? 'on' : ''} onClick={() => set({ onion: { ...onion, mode: 'tint' } })}>색 입히기</button>
+      </div>
+      <button
+        className="btn sm"
+        onClick={() => {
+          onClose();
+          set({ dialog: { type: 'settings', tab: 'view' } });
+        }}
+      >
+        자세한 설정 (장 수 · 다음 프레임)
+      </button>
     </div>
   );
 }
@@ -275,6 +395,7 @@ export function Timeline() {
   const layerId = useEditor((s) => s.layerId);
   const playing = useEditor((s) => s.playing);
   const loop = useEditor((s) => s.loop);
+  const speed = useEditor((s) => s.playSpeed);
   const onion = useEditor((s) => s.onion);
   const col = useEditor((s) => s.timelineCol);
   const naming = useEditor((s) => s.noteNaming);
@@ -332,11 +453,13 @@ export function Timeline() {
   };
 
   // 헤더 드래그 = 스크럽, 썸네일 드래그 = 프레임 순서 이동
-  const frameAt = (clientX: number) => {
+  const rawFrameAt = useCallback((clientX: number) => {
     const el = scrollRef.current!;
     const r = el.getBoundingClientRect();
-    return Math.max(0, Math.min(n - 1, Math.floor((clientX - r.left + el.scrollLeft - LABEL_W) / col)));
-  };
+    return Math.floor((clientX - r.left + el.scrollLeft - LABEL_W) / col);
+  }, [col]);
+  const frameAt = (clientX: number) => Math.max(0, Math.min(n - 1, rawFrameAt(clientX)));
+  const [menu, setMenu] = useState<RunMenu | null>(null);
   const scrubStart = (e: React.PointerEvent) => {
     if (e.pointerType === 'touch') {
       st.setFrame(frameAt(e.clientX));
@@ -431,6 +554,13 @@ export function Timeline() {
         <button className={'icon-btn' + (loop ? ' active' : '')} onClick={() => st.set({ loop: !loop })} title="반복 재생">
           <Repeat size={15} />
         </button>
+        <select className="select speed-sel" value={speed} onChange={(e) => st.set({ playSpeed: Number(e.target.value) })} title="재생 속도 (타이밍 확인용)">
+          {[0.25, 0.5, 0.75, 1, 1.5, 2].map((v) => (
+            <option key={v} value={v}>
+              {v}×
+            </option>
+          ))}
+        </select>
         <div className="menu-wrap">
           <button
             data-onion-btn
@@ -440,7 +570,7 @@ export function Timeline() {
               e.preventDefault();
               setPop(pop === 'onion' ? null : 'onion');
             }}
-            title="어니언 스킨 (우클릭: 설정)"
+            title="이전 프레임 겹쳐 보기 (O · 우클릭: 설정)"
           >
             <Ghost size={15} />
           </button>
@@ -515,7 +645,7 @@ export function Timeline() {
             </div>
           )}
           {layersTopFirst.map((l) => (
-            <LayerRow key={l.id} layer={l} frames={p.frames} start={start} end={end} col={col} selected={l.id === layerId} cur={l.id === layerId ? fi : -1} onCell={onCell} onTap={onTap} />
+            <LayerRow key={l.id} layer={l} frames={p.frames} start={start} end={end} col={col} selected={l.id === layerId} cur={l.id === layerId ? fi : -1} onCell={onCell} onTap={onTap} onMenu={setMenu} rawFrameAt={rawFrameAt} />
           ))}
           {p.audio && sounds ? (
             <>
@@ -557,6 +687,7 @@ export function Timeline() {
             </div>
           )}
           <div className="playhead" style={{ left: LABEL_W + fi * col + col / 2 - 1 }} />
+          {menu && <RunMenuView menu={menu} onClose={() => setMenu(null)} />}
         </div>
       </div>
     </div>

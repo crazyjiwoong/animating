@@ -44,12 +44,15 @@ export interface Transform {
 
 export interface RasterCel {
   kind: 'raster';
+  /** 같은 key 가 연속된 프레임 = 한 그림을 길게 노출(홀드). 함께 편집된다 */
+  key?: string;
   /** 커밋된 뒤에는 절대 수정하지 않는다 (undo 스냅샷이 참조를 공유). */
   canvas: HTMLCanvasElement;
 }
 
 export interface ImageCel {
   kind: 'image';
+  key?: string;
   assetId: string;
   t: Transform;
 }
@@ -112,7 +115,7 @@ export interface Project {
   updatedAt: number;
 }
 
-export type Tool = 'brush' | 'eraser' | 'move' | 'fill' | 'picker' | 'hand';
+export type Tool = 'brush' | 'eraser' | 'shape' | 'move' | 'fill' | 'picker' | 'hand';
 
 export interface ProjectMeta {
   id: string;

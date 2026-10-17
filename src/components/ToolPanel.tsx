@@ -1,4 +1,4 @@
-import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, FlipHorizontal2, FlipVertical2, RotateCcw, Crosshair, History, ImageUp } from 'lucide-react';
+import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, FlipHorizontal2, FlipVertical2, RotateCcw, Crosshair, History, ImageUp, Slash, Square, Circle, Wand2 } from 'lucide-react';
 import { pickFile } from '../lib/id';
 import { replaceCurrentImage } from '../lib/importers';
 import { useEditor, currentCel, currentLayer, type BrushSettings } from '../store/editor';
@@ -17,6 +17,33 @@ function BrushProps({ k }: { k: 'brush' | 'eraser' }) {
       <Slider label="불투명도" value={Math.round(st.opacity * 100)} min={1} max={100} onChange={(v) => up({ opacity: v / 100 })} format={(v) => `${v}%`} />
       <Slider label="손떨림 보정" value={Math.round(st.smoothing * 100)} min={0} max={100} onChange={(v) => up({ smoothing: v / 100 })} format={(v) => `${v}`} />
       <Toggle label="펜 필압 사용" on={st.pressure} onChange={(pressure) => up({ pressure })} />
+    </>
+  );
+}
+
+function ShapeProps() {
+  const shape = useEditor((s) => s.shape);
+  const brush = useEditor((s) => s.brush);
+  const set = useEditor((s) => s.set);
+  return (
+    <>
+      <div className="seg" style={{ alignSelf: 'stretch', display: 'flex' }}>
+        {([
+          ['line', <Slash size={14} key="l" />, '직선'],
+          ['rect', <Square size={14} key="r" />, '사각형'],
+          ['ellipse', <Circle size={14} key="e" />, '원'],
+        ] as const).map(([k, icon, label]) => (
+          <button key={k} className={shape.kind === k ? 'on' : ''} style={{ flex: 1, display: 'inline-flex', gap: 5, alignItems: 'center', justifyContent: 'center' }} onClick={() => set({ shape: { ...shape, kind: k } })}>
+            {icon} {label}
+          </button>
+        ))}
+      </div>
+      {shape.kind !== 'line' && <Toggle label="안을 채우기" on={shape.fill} onChange={(fill) => set({ shape: { ...shape, fill } })} />}
+      <Slider label="선 굵기" value={brush.size} min={1} max={200} onChange={(size) => set({ brush: { ...brush, size } })} format={(v) => `${v}px`} />
+      <Slider label="불투명도" value={Math.round(brush.opacity * 100)} min={1} max={100} onChange={(v) => set({ brush: { ...brush, opacity: v / 100 } })} format={(v) => `${v}%`} />
+      <div className="muted" style={{ fontSize: 11.5 }}>
+        <span className="kbd">Shift</span> 정사각형 · 정원 · 45° 직선
+      </div>
     </>
   );
 }
@@ -104,6 +131,9 @@ function MoveProps() {
           <RotateCcw size={13} /> 초기화
         </button>
       </div>
+      <button className="btn sm primary" onClick={() => useEditor.getState().set({ dialog: { type: 'tween' } })} title="시작·끝 위치 사이를 자동으로 채워요">
+        <Wand2 size={13} /> 자동 중간 프레임 (트윈)
+      </button>
       <button className="btn sm" onClick={copyPrev} disabled={fi === 0}>
         <History size={13} /> 이전 프레임 위치 그대로 가져오기
       </button>
@@ -135,6 +165,7 @@ export function ToolPanel() {
       <div className="panel-body">
         {tool === 'brush' && <BrushProps k="brush" />}
         {tool === 'eraser' && <BrushProps k="eraser" />}
+        {tool === 'shape' && <ShapeProps />}
         {tool === 'fill' && (
           <>
             <Slider label="허용 오차" value={fill.tolerance} min={0} max={128} onChange={(tolerance) => set({ fill: { ...fill, tolerance } })} />
