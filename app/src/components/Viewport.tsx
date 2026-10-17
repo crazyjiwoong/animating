@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { ZoomIn, ZoomOut, Maximize, Lock, EyeOff, Grid3x3, Scan, FlipHorizontal2 } from 'lucide-react';
 import type { Frame, Layer, Project, Transform } from '../types';
-import { useEditor, currentLayer, type ShapeKind } from '../store/editor';
+import { useEditor, currentLayer, type ShapeKind, type SelShape } from '../store/editor';
+import { sel, makeSelection, shapeOutline, updateSelection, commitSelection, outlineNow, type Pt } from '../lib/selection';
 import { useView } from '../store/view';
 import { live, invalidate, onInvalidate } from '../lib/live';
 import { alphaBounds, checkerPattern, cloneCanvas, createCanvas, ctx2d, floodFillMask, rgbToHex, type Rect } from '../lib/canvas';
@@ -158,7 +159,7 @@ type Drag =
       mode: 'move' | 'scale' | 'rotate';
       layerId: string;
       frameIndex: number;
-      kind: 'image' | 'raster';
+      kind: 'image' | 'raster' | 'selection';
       src: CanvasImageSource & { width: number; height: number };
       t0: Transform;
       t: Transform;
@@ -183,7 +184,13 @@ type Drag =
       opacity: number;
       alphaLock: boolean;
     }
-  | { type: 'pinch'; d0: number; z0: number; cx: number; cy: number; mx: number; my: number };
+  | { type: 'pinch'; d0: number; z0: number; cx: number; cy: number; mx: number; my: number }
+  /** 이동 도구: 꾹 누르는지 보는 중 (움직이면 이동, 가만히 있으면 범위 지정) */
+  | { type: 'pending'; downPt: { x: number; y: number }; downC: Pt; timer: number }
+  /** 이동 도구: 꾹 누른 뒤 범위를 그리는 중 */
+  | { type: 'select'; layerId: string; frameIndex: number; shape: SelShape; pts: Pt[] };
+
+const LONG_PRESS_MS = 380;
 
 function stamp(ctx: CanvasRenderingContext2D, ax: number, ay: number, as: number, bx: number, by: number, bs: number) {
   const dist = Math.hypot(bx - ax, by - ay);
@@ -329,10 +336,44 @@ export function Viewport() {
 
     // 변형 상자
     const d = drag.current;
+    // 개미 줄 (흰 선 + 검은 점선)
+    const ants = (pts: Pt[], closed: boolean) => {
+      if (pts.length < 2) return;
+      const sp = pts.map((q) => toScreen(q.x, q.y));
+      const path = () => {
+        ctx.beginPath();
+        sp.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+        if (closed) ctx.closePath();
+      };
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([]);
+      ctx.strokeStyle = '#fff';
+      path();
+      ctx.stroke();
+      ctx.setLineDash([5, 4]);
+      ctx.lineDashOffset = -((performance.now() / 60) % 9);
+      ctx.strokeStyle = '#1d1f2b';
+      path();
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.lineDashOffset = 0;
+    };
     if (s.tool === 'move' && !s.playing && !keys.current.space) {
+      if (d?.type === 'select') {
+        ants(shapeOutline(d.shape, d.pts), d.shape !== 'lasso' || d.pts.length > 2);
+        // 꾹 누른 자리 표시
+        const [px, py] = toScreen(d.pts[0].x, d.pts[0].y);
+        ctx.beginPath();
+        ctx.arc(px, py, 5, 0, Math.PI * 2);
+        ctx.fillStyle = '#8b7bff';
+        ctx.fill();
+      }
+      const f = sel.floating;
+      if (f) ants(outlineNow(f), true);
       let box: Box | null = null;
-      if (d?.type === 'transform') box = { w: d.w, h: d.h, t: d.t };
-      else box = targetBox(p, s.frameIndex, s.layerId);
+      if (f) box = { w: f.piece.width, h: f.piece.height, t: f.t };
+      else if (d?.type === 'transform') box = { w: d.w, h: d.h, t: d.t };
+      else if (d?.type !== 'select') box = targetBox(p, s.frameIndex, s.layerId);
       if (box) {
         const pts = boxCorners(box).map(([x, y]) => toScreen(x, y));
         ctx.strokeStyle = '#8b7bff';
@@ -424,6 +465,14 @@ export function Viewport() {
     };
   }, []);
 
+  // 범위가 떠 있는 동안 개미 줄이 움직이게
+  const selectionActive = useEditor((s) => s.selectionActive);
+  useEffect(() => {
+    if (!selectionActive) return;
+    const id = setInterval(schedule, 90);
+    return () => clearInterval(id);
+  }, [selectionActive]);
+
   // 화면 맞춤
   useEffect(() => {
     const p = useEditor.getState().project;
@@ -492,8 +541,11 @@ export function Viewport() {
 
   /* ---------------- 포인터 */
   const cancelDrag = () => {
+    const d = drag.current;
+    if (d?.type === 'pending') clearTimeout(d.timer);
     drag.current = null;
-    live.override = null;
+    // 떠 있는 범위는 그대로 보여 준다
+    if (!sel.floating) live.override = null;
     invalidate();
   };
 
@@ -624,67 +676,129 @@ export function Viewport() {
     }
 
     if (tool === 'move') {
-      let box = targetBox(p, s.frameIndex, lyr.id);
-      let layerId = lyr.id;
-      const screenPts = box ? boxCorners(box).map(([x, y]) => toScreen(x, y)) : null;
-      let mode: 'move' | 'scale' | 'rotate' | null = null;
-      if (box && screenPts) {
-        const rh = rotHandle(screenPts);
-        if (Math.hypot(pt.x - rh[0], pt.y - rh[1]) < 12) mode = 'rotate';
-        else if (screenPts.some(([x, y]) => Math.hypot(pt.x - x, pt.y - y) < 12)) mode = 'scale';
-        else if (insideBox(box, c.x, c.y)) mode = 'move';
-      }
-      if (!mode) {
-        // 다른 이미지 레이어 자동 선택
-        const frame = p.frames[s.frameIndex];
-        for (let i = p.layers.length - 1; i >= 0; i--) {
-          const l = p.layers[i];
-          if (!l.visible || l.locked || l.id === lyr.id) continue;
-          const b = targetBox(p, s.frameIndex, l.id);
-          if (b && frame.cels[l.id]?.kind === 'image' && insideBox(b, c.x, c.y)) {
-            s.setLayer(l.id);
-            box = b;
-            layerId = l.id;
-            mode = 'move';
-            break;
-          }
+      // 떠 있는 범위: 손잡이·안쪽이면 그 범위를 변형, 바깥이면 내려놓기
+      const f = sel.floating;
+      if (f) {
+        const box: Box = { w: f.piece.width, h: f.piece.height, t: f.t };
+        const mode = hitBox(box, pt, c);
+        if (mode) {
+          drag.current = {
+            type: 'transform',
+            mode,
+            layerId: f.layerId,
+            frameIndex: f.frameIndex,
+            kind: 'selection',
+            src: f.piece,
+            t0: { ...f.t },
+            t: { ...f.t },
+            w: box.w,
+            h: box.h,
+            start: c,
+            startAngle: Math.atan2(c.y - f.t.y, c.x - f.t.x),
+            startDist: Math.hypot(c.x - f.t.x, c.y - f.t.y) || 1,
+          };
+          return;
         }
+        commitSelection();
       }
-      if (!mode || !box) {
-        // 래스터 레이어는 상자 밖을 잡아도 통째로 이동
-        if (lyr.kind === 'raster' && box) mode = 'move';
-        else return;
-      }
-      const cel = p.frames[s.frameIndex].cels[layerId]!;
-      let src: CanvasImageSource & { width: number; height: number };
-      let kind: 'image' | 'raster';
-      if (cel.kind === 'image') {
-        src = p.assets[cel.assetId].bitmap;
-        kind = 'image';
-      } else {
-        const b = rasterBounds(cel.canvas)!;
-        const crop = createCanvas(b.w, b.h);
-        ctx2d(crop).drawImage(cel.canvas, -b.x, -b.y);
-        src = crop;
-        kind = 'raster';
-      }
-      drag.current = {
-        type: 'transform',
-        mode,
-        layerId,
-        frameIndex: s.frameIndex,
-        kind,
-        src,
-        t0: { ...box.t },
-        t: { ...box.t },
-        w: box.w,
-        h: box.h,
-        start: c,
-        startAngle: Math.atan2(c.y - box.t.y, c.x - box.t.x),
-        startDist: Math.hypot(c.x - box.t.x, c.y - box.t.y) || 1,
-      };
+      // 꾹 누르면 범위 지정, 바로 움직이면 이동
+      const timer = window.setTimeout(startSelect, LONG_PRESS_MS);
+      drag.current = { type: 'pending', downPt: pt, downC: c, timer };
       return;
     }
+  };
+
+  /** 상자의 어느 부분을 눌렀는지 (화면 좌표 pt, 캔버스 좌표 c) */
+  const hitBox = (box: Box, pt: { x: number; y: number }, c: Pt): 'move' | 'scale' | 'rotate' | null => {
+    const screenPts = boxCorners(box).map(([x, y]) => toScreen(x, y));
+    const rh = rotHandle(screenPts);
+    if (Math.hypot(pt.x - rh[0], pt.y - rh[1]) < 12) return 'rotate';
+    if (screenPts.some(([x, y]) => Math.hypot(pt.x - x, pt.y - y) < 12)) return 'scale';
+    if (insideBox(box, c.x, c.y)) return 'move';
+    return null;
+  };
+
+  /** 꾹 누르기 성공 → 범위 그리기 시작 */
+  const startSelect = () => {
+    const d = drag.current;
+    if (d?.type !== 'pending') return;
+    const s = useEditor.getState();
+    const lyr = currentLayer(s);
+    const cel = s.project?.frames[s.frameIndex]?.cels[s.layerId];
+    if (!lyr || lyr.kind !== 'raster') {
+      drag.current = null;
+      s.toast('범위 지정은 그림(래스터) 레이어에서 쓸 수 있어요 · 이미지 레이어는 그냥 끌어서 옮기세요', 'error');
+      return;
+    }
+    if (!cel) {
+      drag.current = null;
+      s.toast('이 프레임의 선택한 레이어에 그림이 없어요', 'error');
+      return;
+    }
+    navigator.vibrate?.(15);
+    drag.current = { type: 'select', layerId: lyr.id, frameIndex: s.frameIndex, shape: s.selShape, pts: [d.downC] };
+    invalidate();
+  };
+
+  /** 레이어 전체 이동·변형 시작 (예전 동작). 시작했으면 true */
+  const beginMove = (pt: { x: number; y: number }, c: Pt): boolean => {
+    const s = useEditor.getState();
+    const p = s.project!;
+    const lyr = currentLayer(s);
+    if (!lyr) return false;
+    let box = targetBox(p, s.frameIndex, lyr.id);
+    let layerId = lyr.id;
+    let mode = box ? hitBox(box, pt, c) : null;
+    if (!mode) {
+      // 다른 이미지 레이어 자동 선택
+      const frame = p.frames[s.frameIndex];
+      for (let i = p.layers.length - 1; i >= 0; i--) {
+        const l = p.layers[i];
+        if (!l.visible || l.locked || l.id === lyr.id) continue;
+        const b = targetBox(p, s.frameIndex, l.id);
+        if (b && frame.cels[l.id]?.kind === 'image' && insideBox(b, c.x, c.y)) {
+          s.setLayer(l.id);
+          box = b;
+          layerId = l.id;
+          mode = 'move';
+          break;
+        }
+      }
+    }
+    if (!mode || !box) {
+      // 래스터 레이어는 상자 밖을 잡아도 통째로 이동
+      if (lyr.kind === 'raster' && box) mode = 'move';
+      else return false;
+    }
+    const cel = p.frames[s.frameIndex].cels[layerId]!;
+    let src: CanvasImageSource & { width: number; height: number };
+    let kind: 'image' | 'raster';
+    if (cel.kind === 'image') {
+      src = p.assets[cel.assetId].bitmap;
+      kind = 'image';
+    } else {
+      const b = rasterBounds(cel.canvas)!;
+      const crop = createCanvas(b.w, b.h);
+      ctx2d(crop).drawImage(cel.canvas, -b.x, -b.y);
+      src = crop;
+      kind = 'raster';
+    }
+    drag.current = {
+      type: 'transform',
+      mode,
+      layerId,
+      frameIndex: s.frameIndex,
+      kind,
+      src,
+      t0: { ...box.t },
+      t: { ...box.t },
+      w: box.w,
+      h: box.h,
+      start: c,
+      startAngle: Math.atan2(c.y - box.t.y, c.x - box.t.x),
+      startDist: Math.hypot(c.x - box.t.x, c.y - box.t.y) || 1,
+    };
+    return true;
   };
 
   const composeStroke = (d: Drag & { type: 'stroke' }) => {
@@ -714,6 +828,34 @@ export function Viewport() {
       return;
     }
     const v = useView.getState();
+    if (d.type === 'pending') {
+      // 꾹 누르기 전에 움직였다 → 보통 이동
+      if (Math.hypot(pt.x - d.downPt.x, pt.y - d.downPt.y) < 6) return;
+      clearTimeout(d.timer);
+      if (!beginMove(d.downPt, d.downC)) {
+        drag.current = null;
+        return;
+      }
+      onPointerMove(e);
+      return;
+    }
+    if (d.type === 'select') {
+      const c = toCanvas(pt.x, pt.y);
+      if (d.shape === 'lasso') {
+        const last = d.pts[d.pts.length - 1];
+        if (Math.hypot(c.x - last.x, c.y - last.y) * v.zoom > 2) d.pts.push(c);
+      } else {
+        let { x, y } = c;
+        if (e.shiftKey) {
+          const m = Math.max(Math.abs(x - d.pts[0].x), Math.abs(y - d.pts[0].y));
+          x = d.pts[0].x + Math.sign(x - d.pts[0].x || 1) * m;
+          y = d.pts[0].y + Math.sign(y - d.pts[0].y || 1) * m;
+        }
+        d.pts = [d.pts[0], { x, y }];
+      }
+      invalidate();
+      return;
+    }
     if (d.type === 'pinch') {
       const [a, b] = [...pointers.current.values()];
       if (!a || !b) return;
@@ -798,6 +940,10 @@ export function Viewport() {
         t.rotation = ((a % 360) + 540) % 360 - 180;
       }
       d.t = t;
+      if (d.kind === 'selection') {
+        updateSelection(t);
+        return;
+      }
       const src = d.src;
       live.override = { layerId: d.layerId, draw: (ctx) => drawSourceWithTransform(ctx, src, t) };
       invalidate();
@@ -815,6 +961,34 @@ export function Viewport() {
     drag.current = null;
     const s = useEditor.getState();
     const p = s.project!;
+    if (d.type === 'pending') {
+      // 짧게 눌렀다 뗌: 이미지 레이어 자동 선택만
+      clearTimeout(d.timer);
+      if (beginMove(d.downPt, d.downC)) drag.current = null;
+      invalidate();
+      return;
+    }
+    if (d.type === 'select') {
+      const outline = shapeOutline(d.shape, d.pts);
+      let area = 0;
+      for (let i = 0; i < outline.length; i++) {
+        const a = outline[i],
+          b = outline[(i + 1) % outline.length];
+        area += a.x * b.y - b.x * a.y;
+      }
+      if (Math.abs(area) / 2 < 16) {
+        invalidate();
+        return;
+      }
+      if (!makeSelection(d.layerId, d.frameIndex, outline)) s.toast('고른 곳에 그림이 없어요', 'error');
+      else s.toast('범위를 골랐어요 · 끌어서 옮기고, 바깥을 누르면 확정 (Esc 취소 · Delete 지우기)', 'success');
+      invalidate();
+      return;
+    }
+    if (d.type === 'transform' && d.kind === 'selection') {
+      invalidate();
+      return;
+    }
     if (d.type === 'shape') {
       live.override = null;
       if (Math.hypot(d.end.x - d.start.x, d.end.y - d.start.y) > 1) s.setCel(d.frameIndex, d.layerId, { kind: 'raster', canvas: d.work }, '도형');

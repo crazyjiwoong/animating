@@ -15,6 +15,8 @@ const LIST: [string, string][] = [
   ['새 프레임', 'Ctrl + Shift + F'],
   ['새 레이어', 'Ctrl + Shift + N'],
   ['미세 이동 (이동 도구)', '방향키 · Shift = 10px'],
+  ['범위 지정 (이동 도구)', '꾹 누른 채로 끌기'],
+  ['범위 확정 / 취소 / 지우기', 'Enter / Esc / Delete'],
   ['셀 복사 / 붙여넣기', 'Ctrl + C / V'],
   ['이미지 붙여넣기', 'Ctrl + V (클립보드 이미지)'],
   ['셀 지우기', 'Delete'],

@@ -1,4 +1,5 @@
-import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, FlipHorizontal2, FlipVertical2, RotateCcw, Crosshair, History, ImageUp, Slash, Square, Circle } from 'lucide-react';
+import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, FlipHorizontal2, FlipVertical2, RotateCcw, Crosshair, History, ImageUp, Slash, Square, Circle, Lasso, Check, Trash2 } from 'lucide-react';
+import { cancelSelection, commitSelection, deleteSelection } from '../lib/selection';
 import { openFiles } from '../lib/platform';
 import { replaceCurrentImage } from '../lib/importers';
 import { useEditor, currentCel, currentLayer, type BrushSettings } from '../store/editor';
@@ -45,6 +46,47 @@ function ShapeProps() {
         <span className="kbd">Shift</span> 정사각형 · 정원 · 45° 직선
       </div>
     </>
+  );
+}
+
+function SelectProps() {
+  const selShape = useEditor((s) => s.selShape);
+  const active = useEditor((s) => s.selectionActive);
+  const set = useEditor((s) => s.set);
+  return (
+    <div className="sel-box">
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <span className="label">꾹 누르고 끌어서 범위 지정</span>
+      </div>
+      <div className="seg" style={{ display: 'flex' }}>
+        {([
+          ['lasso', <Lasso size={14} key="l" />, '올가미'],
+          ['rect', <Square size={14} key="r" />, '사각형'],
+          ['ellipse', <Circle size={14} key="e" />, '원'],
+        ] as const).map(([k, icon, label]) => (
+          <button key={k} className={selShape === k ? 'on' : ''} style={{ flex: 1, display: 'inline-flex', gap: 5, alignItems: 'center', justifyContent: 'center' }} onClick={() => set({ selShape: k })}>
+            {icon} {label}
+          </button>
+        ))}
+      </div>
+      {active ? (
+        <div className="row" style={{ gap: 4 }}>
+          <button className="btn sm primary grow" onClick={commitSelection} title="Enter">
+            <Check size={13} /> 확정
+          </button>
+          <button className="btn sm" onClick={cancelSelection} title="Esc">
+            취소
+          </button>
+          <button className="btn sm danger" onClick={deleteSelection} title="Delete">
+            <Trash2 size={13} /> 지우기
+          </button>
+        </div>
+      ) : (
+        <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.5 }}>
+          잠깐 꾹 누른 채로 끌면 일부분만 골라 옮기거나 돌릴 수 있어요. 바로 끌면 레이어 전체가 움직여요.
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -169,6 +211,7 @@ export function ToolPanel() {
             <Toggle label="모든 레이어 참조 (선화 기준 채우기)" on={fill.allLayers} onChange={(allLayers) => set({ fill: { ...fill, allLayers } })} />
           </>
         )}
+        {tool === 'move' && <SelectProps />}
         {tool === 'move' && <MoveProps />}
         {tool === 'picker' && <div className="muted">캔버스를 눌러 색을 가져와요. 브러시 사용 중 <span className="kbd">Alt</span> 를 누르고 있어도 돼요.</div>}
         {tool === 'hand' && <div className="muted">드래그해서 화면을 옮겨요. 휠로 확대/축소, 두 손가락으로 핀치 줌.</div>}

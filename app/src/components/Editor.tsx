@@ -6,6 +6,7 @@ import { desktop, isDesktop } from '../lib/platform';
 import { playAudioFrom, playFrameSlice, stopAudio } from '../lib/audio';
 import { importFiles, importImageBlob } from '../lib/importers';
 import { nudge } from '../lib/nudge';
+import { sel, cancelSelection, commitSelection, deleteSelection, nudgeSelection } from '../lib/selection';
 import { TopBar } from './TopBar';
 import { Toolbar } from './Toolbar';
 import { Viewport } from './Viewport';
@@ -82,6 +83,7 @@ export function Editor({ onExit }: { onExit: () => void }) {
   usePlayback();
 
   const save = useCallback(async (silent = false) => {
+    commitSelection();
     const s = useEditor.getState();
     if (!s.project || savingRef.current) return;
     savingRef.current = true;
@@ -191,6 +193,30 @@ export function Editor({ onExit }: { onExit: () => void }) {
       if (s.dialog) return;
       const mod = e.ctrlKey || e.metaKey;
       const k = e.key.toLowerCase();
+      // 떠 있는 범위가 있으면 먼저 처리
+      if (sel.floating) {
+        if (e.key === 'Escape' || (mod && k === 'z')) {
+          cancelSelection();
+          e.preventDefault();
+          return;
+        }
+        if (e.key === 'Enter') {
+          commitSelection();
+          e.preventDefault();
+          return;
+        }
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+          deleteSelection();
+          e.preventDefault();
+          return;
+        }
+        if (e.key.startsWith('Arrow')) {
+          const step = e.shiftKey ? 10 : 1;
+          nudgeSelection(e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0, e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0);
+          e.preventDefault();
+          return;
+        }
+      }
       if (mod) {
         if (k === 'z' && !e.shiftKey) s.undo();
         else if ((k === 'z' && e.shiftKey) || k === 'y') s.redo();
@@ -286,6 +312,7 @@ export function Editor({ onExit }: { onExit: () => void }) {
   }, [save]);
 
   const goHome = async () => {
+    commitSelection();
     const s = useEditor.getState();
     s.set({ playing: false });
     if (s.dirty) await save(true);

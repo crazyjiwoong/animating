@@ -36,6 +36,8 @@ export type Dialog =
   | { type: 'imageImport'; files: File[] };
 
 export type ShapeKind = 'line' | 'rect' | 'ellipse';
+/** 이동 도구에서 꾹 눌러 범위를 지정할 때의 모양 */
+export type SelShape = 'lasso' | 'rect' | 'ellipse';
 export interface OnionSettings {
   enabled: boolean;
   before: number;
@@ -69,6 +71,9 @@ export interface EditorState {
   recentColors: string[];
   onion: OnionSettings;
   shape: { kind: ShapeKind; fill: boolean };
+  selShape: SelShape;
+  /** 범위를 지정해 떠 있는 그림이 있는지 (화면 표시용) */
+  selectionActive: boolean;
   grid: { enabled: boolean; size: number; safe: boolean };
   flipView: boolean;
   playSpeed: number;
@@ -224,6 +229,8 @@ export const useEditor = create<EditorState>((set, get) => ({
   recentColors: ['#1d1f2b', '#ffffff', '#ff5d73', '#ffb340', '#ffd23f', '#5ee38c', '#45b8ff', '#8b7bff'],
   onion: { enabled: true, before: 1, after: 0, opacity: 0.3, mode: 'plain', skipSame: true },
   shape: { kind: 'rect', fill: false },
+  selShape: 'lasso',
+  selectionActive: false,
   grid: { enabled: false, size: 64, safe: false },
   flipView: false,
   playSpeed: 1,
@@ -803,7 +810,7 @@ export function currentCel(s: EditorState): Cel | undefined {
 /* ---------------------------------------------------------------- 환경 설정 저장 */
 
 const PREF_KEYS = [
-  'onion', 'shape', 'grid', 'playSpeed', 'exposureMode', 'scrubSound', 'timelineCol', 'timelineH',
+  'onion', 'shape', 'selShape', 'grid', 'playSpeed', 'exposureMode', 'scrubSound', 'timelineCol', 'timelineH',
   'brush', 'eraser', 'fill', 'recentColors', 'loop',
 ] as const;
 const PREF_STORAGE = 'frameflow-prefs';
