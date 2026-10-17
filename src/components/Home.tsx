@@ -81,7 +81,10 @@ export function Home() {
               <Layers size={16} color="#fff" />
             </div>
             <span className="brand-name">
-              AMG <small>애니만들기힘들어서직접만듬</small>
+              AMG{' '}
+              <small>
+                <b>A</b>ㅐ니 <b>M</b>ㅏㄴ들<b>G</b>ㅣ 힘들어서 직접 만듬
+              </small>
             </span>
           </div>
           <span className="muted" style={{ fontSize: 12 }}>

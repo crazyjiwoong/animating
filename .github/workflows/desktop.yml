@@ -58,7 +58,7 @@ jobs:
           target_commitish: ${{ github.sha }}
           make_latest: true
           body: |
-            AMG (애니만들기힘들어서직접만듬) — 누구나 쉽게 만들 수 있는 초보자들을 위한 애니메이션 툴
+            AMG (Aㅐ니 Mㅏㄴ들Gㅣ 힘들어서 직접 만듬) — 누구나 쉽게 만들 수 있는 초보자들을 위한 애니메이션 툴
 
             - Windows: `AMG-Setup-Windows.exe`
             - macOS (Apple Silicon): `AMG-macOS.dmg`

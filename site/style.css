@@ -784,3 +784,130 @@ details p {
   width: 100%;
   height: auto;
 }
+
+/* ------------------------------------------------------------------ AMG 워드마크 */
+.wordmark {
+  margin: 22px 0 22px;
+  line-height: 1;
+}
+.wm-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 0.22em;
+  font-size: clamp(54px, 6.6vw, 92px);
+  font-weight: 900;
+  letter-spacing: -0.05em;
+}
+.wm-row > .wm + .wm {
+  margin-left: 0;
+}
+.wm {
+  display: inline-flex;
+  align-items: baseline;
+  white-space: nowrap;
+}
+.wm b {
+  background: var(--grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.wm i {
+  font-style: normal;
+  font-size: 0.42em;
+  font-weight: 800;
+  letter-spacing: -0.12em;
+  padding-right: 0.08em;
+  color: var(--text-2);
+  margin-left: 0.04em;
+  display: inline-block;
+  overflow: hidden;
+  max-width: 3em;
+  vertical-align: baseline;
+  animation: wm-in 0.7s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+.wm-pair {
+  display: inline-flex;
+  align-items: baseline;
+  white-space: nowrap;
+}
+.wm-row > .wm i { animation-delay: 0.5s; }
+.wm-pair .wm:first-child i { animation-delay: 0.65s; }
+.wm-pair .wm:last-child i { animation-delay: 0.8s; }
+@keyframes wm-in {
+  from {
+    max-width: 0;
+    opacity: 0;
+  }
+}
+.wm-tail {
+  display: block;
+  margin-top: 14px;
+  font-size: clamp(22px, 2.6vw, 30px);
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  color: var(--text-2);
+  animation: fade-up 0.6s 1s ease-out both;
+}
+.wm-tail em {
+  font-style: normal;
+  color: var(--accent-2);
+}
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.fn b {
+  color: var(--accent);
+  font-weight: 900;
+}
+.name-decode {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-top: 8px;
+}
+.name-decode > span:not(.plus):not(.eq) {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  padding: 10px 16px 10px 14px;
+  border-radius: 14px;
+  background: var(--panel);
+  border: 1px solid var(--line-2);
+  font-size: 26px;
+  font-weight: 900;
+}
+.name-decode b {
+  background: var(--grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-size: 34px;
+}
+.name-decode i {
+  font-style: normal;
+  color: var(--text-2);
+  letter-spacing: -0.12em;
+}
+.name-decode em {
+  font-style: normal;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-left: 10px;
+}
+.name-decode .plus {
+  color: var(--muted);
+  font-weight: 700;
+}
+.name-decode .eq {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--text-2);
+}

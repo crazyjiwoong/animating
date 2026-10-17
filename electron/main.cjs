@@ -1,4 +1,4 @@
-// AMG (애니만들기힘들어서직접만듬) 데스크톱 앱 — Electron 메인 프로세스
+// AMG (Aㅐ니 Mㅏㄴ들Gㅣ 힘들어서 직접 만듬) 데스크톱 앱 — Electron 메인 프로세스
 const { app, BrowserWindow, Menu, dialog, ipcMain, net, protocol, shell } = require('electron');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');

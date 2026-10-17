@@ -1956,3 +1956,7 @@ input[type='range']::-moz-range-thumb {
   color: var(--muted);
   letter-spacing: -0.02em;
 }
+.brand-name small b {
+  color: var(--accent);
+  font-weight: 900;
+}

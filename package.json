@@ -34,7 +34,7 @@
     "vite": "^8.3.4",
     "zustand": "^5.0.15"
   },
-  "description": "AMG(애니만들기힘들어서직접만듬) — 누구나 쉽게 만들 수 있는 초보자들을 위한 애니메이션 툴",
+  "description": "AMG(Aㅐ니 Mㅏㄴ들Gㅣ 힘들어서 직접 만듬) — 누구나 쉽게 만들 수 있는 초보자들을 위한 애니메이션 툴",
   "author": "AMG",
   "main": "electron/main.cjs",
   "build": {
