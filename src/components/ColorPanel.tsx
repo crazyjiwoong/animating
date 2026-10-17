@@ -3,6 +3,7 @@ import { ChevronDown } from 'lucide-react';
 import { useEditor } from '../store/editor';
 import { hexToRgb, rgbToHex } from '../lib/canvas';
 import { clamp } from '../lib/id';
+import { trackPointer } from '../lib/drag';
 
 function rgbToHsv(r: number, g: number, b: number): [number, number, number] {
   r /= 255;
@@ -63,14 +64,11 @@ export function ColorPanel() {
     const go = (ev: PointerEvent | React.PointerEvent, done: boolean) =>
       fn(clamp((ev.clientX - r.left) / r.width, 0, 1), clamp((ev.clientY - r.top) / r.height, 0, 1), done);
     go(e, false);
-    const move = (ev: PointerEvent) => go(ev, false);
-    const up = (ev: PointerEvent) => {
-      go(ev, true);
-      el.removeEventListener('pointermove', move);
-      el.removeEventListener('pointerup', up);
-    };
-    el.addEventListener('pointermove', move);
-    el.addEventListener('pointerup', up);
+    trackPointer(
+      e,
+      (ev) => go(ev, false),
+      (ev) => ev && go(ev, true),
+    );
   };
 
   return (

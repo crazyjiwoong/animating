@@ -1,4 +1,6 @@
-import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, FlipHorizontal2, FlipVertical2, RotateCcw, Crosshair, History } from 'lucide-react';
+import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, FlipHorizontal2, FlipVertical2, RotateCcw, Crosshair, History, ImageUp } from 'lucide-react';
+import { pickFile } from '../lib/id';
+import { replaceCurrentImage } from '../lib/importers';
 import { useEditor, currentCel, currentLayer, type BrushSettings } from '../store/editor';
 import { Slider, Toggle } from './ui';
 import { TOOLS } from './Toolbar';
@@ -104,6 +106,16 @@ function MoveProps() {
       </div>
       <button className="btn sm" onClick={copyPrev} disabled={fi === 0}>
         <History size={13} /> 이전 프레임 위치 그대로 가져오기
+      </button>
+      <button
+        className="btn sm"
+        onClick={async () => {
+          const f = (await pickFile('image/*'))[0];
+          if (f) replaceCurrentImage(f);
+        }}
+        title="위치·크기는 그대로 두고 이 프레임의 그림만 바꿔요"
+      >
+        <ImageUp size={13} /> 이 프레임 이미지 교체
       </button>
       <NudgePad />
     </>

@@ -1443,7 +1443,7 @@ input[type='range']::-moz-range-thumb {
   box-shadow: 0 0 12px rgba(139, 123, 255, 0.7);
 }
 .tl-row.audio {
-  height: 64px;
+  height: 48px;
 }
 .tl-row.notes {
   height: 30px;

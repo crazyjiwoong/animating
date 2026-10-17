@@ -3,7 +3,7 @@ import { useEditor } from '../store/editor';
 import { useView } from '../store/view';
 import { saveProject } from '../lib/storage';
 import { playAudioFrom, playFrameSlice, stopAudio } from '../lib/audio';
-import { importImageBlob } from '../lib/importers';
+import { importFiles, importImageBlob } from '../lib/importers';
 import { nudge } from '../lib/nudge';
 import { TopBar } from './TopBar';
 import { Toolbar } from './Toolbar';
@@ -17,6 +17,7 @@ import { FrameDialog } from './dialogs/FrameDialog';
 import { SettingsDialog } from './dialogs/ProjectDialogs';
 import { ExportDialog } from './dialogs/ExportDialog';
 import { ShortcutsDialog } from './dialogs/ShortcutsDialog';
+import { ImageImportDialog } from './dialogs/ImageImportDialog';
 import type { Tool } from '../types';
 
 const TOOL_KEYS: Record<string, Tool> = { b: 'brush', e: 'eraser', v: 'move', g: 'fill', i: 'picker', h: 'hand' };
@@ -133,7 +134,13 @@ export function Editor({ onExit }: { onExit: () => void }) {
     const onPaste = (e: ClipboardEvent) => {
       if ((e.target as HTMLElement)?.closest?.('input,textarea')) return;
       const items = Array.from(e.clipboardData?.items ?? []);
-      const img = items.find((i) => i.kind === 'file' && i.type.startsWith('image/'));
+      const imgs = items.filter((i) => i.kind === 'file' && i.type.startsWith('image/'));
+      if (imgs.length > 1) {
+        e.preventDefault();
+        importFiles(imgs.map((i) => i.getAsFile()!).filter(Boolean));
+        return;
+      }
+      const img = imgs[0];
       if (img) {
         e.preventDefault();
         const f = img.getAsFile();
@@ -274,6 +281,7 @@ export function Editor({ onExit }: { onExit: () => void }) {
       {dialog?.type === 'settings' && <SettingsDialog onClose={close} />}
       {dialog?.type === 'export' && <ExportDialog onClose={close} />}
       {dialog?.type === 'shortcuts' && <ShortcutsDialog onClose={close} />}
+      {dialog?.type === 'imageImport' && <ImageImportDialog files={dialog.files} onClose={close} />}
       <Toasts />
     </div>
   );

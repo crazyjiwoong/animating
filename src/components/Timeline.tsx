@@ -9,6 +9,7 @@ import { renderThumb } from '../lib/render';
 import { analyzeFrames, framePeaks, noteColor, noteName, playTone, formatTime } from '../lib/audio';
 import { pickFile } from '../lib/id';
 import { importAudioFile } from '../lib/importers';
+import { trackPointer } from '../lib/drag';
 import { Slider, Toggle } from './ui';
 
 export const LABEL_W = 168;
@@ -119,7 +120,7 @@ function AudioLane({ start, end, col }: { start: number; end: number; col: numbe
     if (!c) return;
     const dpr = window.devicePixelRatio || 1;
     const w = (end - start) * col;
-    const h = 64;
+    const h = 48;
     c.width = Math.max(1, w * dpr);
     c.height = h * dpr;
     c.style.width = w + 'px';
@@ -337,48 +338,42 @@ export function Timeline() {
     return Math.max(0, Math.min(n - 1, Math.floor((clientX - r.left + el.scrollLeft - LABEL_W) / col)));
   };
   const scrubStart = (e: React.PointerEvent) => {
+    if (e.pointerType === 'touch') {
+      st.setFrame(frameAt(e.clientX));
+      return;
+    }
     const go = (x: number) => st.setFrame(frameAt(x));
     go(e.clientX);
-    const move = (ev: PointerEvent) => go(ev.clientX);
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    trackPointer(e, (ev) => go(ev.clientX));
   };
   const thumbDragStart = (e: React.PointerEvent, i: number) => {
     st.setFrame(i);
     const sx = e.clientX;
     let active = false;
     let to = i;
-    const move = (ev: PointerEvent) => {
-      if (!active && Math.abs(ev.clientX - sx) < 8) return;
-      active = true;
-      to = frameAt(ev.clientX);
-      setDragFrame({ from: i, to });
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      setDragFrame(null);
-      if (active && to !== i) st.moveFrame(i, to);
-      else onTap(i);
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    trackPointer(
+      e,
+      (ev) => {
+        // 터치는 가로 스크롤을 우선한다 (순서 변경은 프레임 설정 창에서)
+        if (ev.pointerType === 'touch') return;
+        if (!active && Math.abs(ev.clientX - sx) < 8) return;
+        active = true;
+        to = frameAt(ev.clientX);
+        setDragFrame({ from: i, to });
+      },
+      (ev) => {
+        setDragFrame(null);
+        if (!ev) return;
+        if (active && to !== i) st.moveFrame(i, to);
+        else onTap(i);
+      },
+    );
   };
 
   const resizeStart = (e: React.PointerEvent) => {
     const sy = e.clientY;
     const h0 = useEditor.getState().timelineH;
-    const move = (ev: PointerEvent) => st.set({ timelineH: Math.max(150, Math.min(window.innerHeight * 0.7, h0 - (ev.clientY - sy))) });
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    trackPointer(e, (ev) => st.set({ timelineH: Math.max(150, Math.min(window.innerHeight * 0.7, h0 - (ev.clientY - sy))) }));
   };
 
   const cur = sounds?.[fi];
@@ -525,7 +520,7 @@ export function Timeline() {
           {p.audio && sounds ? (
             <>
               <div className="tl-row audio">
-                <div className="tl-label" style={{ width: LABEL_W, height: 64, flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'center', gap: 2 }}>
+                <div className="tl-label" style={{ width: LABEL_W, height: 48, flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'center', gap: 2 }}>
                   <div className="row" style={{ width: '100%', gap: 6 }}>
                     <Music size={13} color="var(--accent)" />
                     <span className="nm" style={{ color: 'var(--text)' }}>{p.audio.name}</span>

@@ -33,7 +33,8 @@ export type Dialog =
   | { type: 'settings' }
   | { type: 'export' }
   | { type: 'shortcuts' }
-  | { type: 'audio' };
+  | { type: 'audio' }
+  | { type: 'imageImport'; files: File[] };
 
 interface CelClipboard {
   cel: Cel;
@@ -111,6 +112,8 @@ export interface EditorState {
   /* ---- 에셋/오디오/설정 ---- */
   addAsset: (a: Asset) => void;
   importImage: (blob: Blob, name: string, bitmap: ImageBitmap) => void;
+  importImageSequence: (items: { blob: Blob; name: string; bitmap: ImageBitmap }[]) => void;
+  replaceImage: (blob: Blob, name: string, bitmap: ImageBitmap) => void;
   setAudio: (a: AudioTrack | null) => void;
   updateAudio: (patch: Partial<AudioTrack>) => void;
   updateSettings: (patch: Partial<Pick<Project, 'name' | 'fps' | 'width' | 'height' | 'background'>>) => void;
@@ -187,7 +190,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   toasts: [],
   rightPanelOpen: typeof window === 'undefined' || window.innerWidth > 1000,
   dialog: null,
-  timelineH: 250,
+  timelineH: 268,
 
   openProject: (p) =>
     set({
@@ -562,16 +565,69 @@ export const useEditor = create<EditorState>((set, get) => ({
     const asset: Asset = { id: uid('a_'), name, blob, bitmap, width: bitmap.width, height: bitmap.height };
     s.addAsset(asset);
     const fit = Math.min(1, (p.width * 0.9) / bitmap.width, (p.height * 0.9) / bitmap.height);
+    const centered: Transform = { ...DEFAULT_T, x: p.width / 2, y: p.height / 2, scale: fit };
+
+    // 선택한 이미지 레이어의 현재 프레임이 비어 있으면 그 자리에 넣는다 (프레임마다 그림 바꾸기)
+    const cur = p.layers.find((l) => l.id === s.layerId);
+    if (cur && cur.kind === 'image' && !cur.locked && !p.frames[s.frameIndex].cels[cur.id]) {
+      let prev: Transform | null = null;
+      for (let i = s.frameIndex - 1; i >= 0 && !prev; i--) {
+        const c = p.frames[i].cels[cur.id];
+        if (c?.kind === 'image') prev = c.t;
+      }
+      s.setCel(s.frameIndex, cur.id, { kind: 'image', assetId: asset.id, t: prev ? { ...prev } : centered }, '이미지 넣기');
+      set({ tool: 'move' });
+      s.toast(`'${cur.name}' 레이어의 프레임 ${s.frameIndex + 1}에 넣었어요`, 'success');
+      return;
+    }
+
     const layer = makeLayer('image', name.replace(/\.[a-z0-9]+$/i, '').slice(0, 24) || '이미지', p.layers.length);
     const idx = p.layers.findIndex((l) => l.id === s.layerId);
     const at = idx < 0 ? p.layers.length : idx + 1;
-    const t: Transform = { ...DEFAULT_T, x: p.width / 2, y: p.height / 2, scale: fit };
     s.commit('이미지 가져오기', (p) => ({
       layers: [...p.layers.slice(0, at), layer, ...p.layers.slice(at)],
-      frames: p.frames.map((f, i) => (i === s.frameIndex ? { ...f, cels: { ...f.cels, [layer.id]: { kind: 'image', assetId: asset.id, t } } } : f)),
+      frames: p.frames.map((f, i) => (i === s.frameIndex ? { ...f, cels: { ...f.cels, [layer.id]: { kind: 'image', assetId: asset.id, t: centered } } } : f)),
     }));
     set({ layerId: layer.id, tool: 'move' });
     s.toast('이미지를 새 레이어로 가져왔어요 · 이동 도구로 위치를 조절하세요', 'success');
+  },
+
+  importImageSequence: (items) => {
+    const s = get();
+    const p = s.project!;
+    if (!items.length) return;
+    const assets = items.map(({ blob, name, bitmap }) => ({ id: uid('a_'), name, blob, bitmap, width: bitmap.width, height: bitmap.height }));
+    assets.forEach((a) => s.addAsset(a));
+    // 모든 장에 같은 배율을 써서 크기 관계를 유지한다
+    const maxW = Math.max(...assets.map((a) => a.width));
+    const maxH = Math.max(...assets.map((a) => a.height));
+    const fit = Math.min(1, (p.width * 0.9) / maxW, (p.height * 0.9) / maxH);
+    const layer = makeLayer('image', `시퀀스 ${assets.length}장`, p.layers.length);
+    const idx = p.layers.findIndex((l) => l.id === s.layerId);
+    const at = idx < 0 ? p.layers.length : idx + 1;
+    const startF = s.frameIndex;
+    s.commit(`이미지 ${assets.length}장 시퀀스`, (p) => {
+      const frames = [...p.frames];
+      while (frames.length < startF + assets.length) frames.push({ id: uid('f_'), cels: {} });
+      assets.forEach((a, k) => {
+        const f = frames[startF + k];
+        frames[startF + k] = { ...f, cels: { ...f.cels, [layer.id]: { kind: 'image', assetId: a.id, t: { ...DEFAULT_T, x: p.width / 2, y: p.height / 2, scale: fit } } } };
+      });
+      return { layers: [...p.layers.slice(0, at), layer, ...p.layers.slice(at)], frames };
+    });
+    set({ layerId: layer.id });
+    s.toast(`이미지 ${assets.length}장을 프레임 ${startF + 1}~${startF + assets.length}에 넣었어요`, 'success');
+  },
+
+  replaceImage: (blob, name, bitmap) => {
+    const s = get();
+    const p = s.project!;
+    const cel = p.frames[s.frameIndex]?.cels[s.layerId];
+    if (!cel || cel.kind !== 'image') return;
+    const asset: Asset = { id: uid('a_'), name, blob, bitmap, width: bitmap.width, height: bitmap.height };
+    s.addAsset(asset);
+    s.setCel(s.frameIndex, s.layerId, { ...cel, assetId: asset.id, t: { ...cel.t } }, '이미지 교체');
+    s.toast('이 프레임의 이미지를 바꿨어요 (위치·크기는 그대로)', 'success');
   },
 
   setAudio: (a) => set((s) => (s.project ? { project: { ...s.project, audio: a }, dirty: true } : {})),

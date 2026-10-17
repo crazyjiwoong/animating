@@ -59,8 +59,11 @@ export async function exportVideo(p: Project, fmt: VideoFormat, opts: ExportOpti
   };
   draw(0);
 
-  const stream = canvas.captureStream(0);
+  // requestFrame 이 없는 브라우저는 일정 속도로 캡처한다
+  const manual = typeof CanvasCaptureMediaStreamTrack !== 'undefined' && 'requestFrame' in CanvasCaptureMediaStreamTrack.prototype;
+  const stream = canvas.captureStream(manual ? 0 : p.fps);
   const vtrack = stream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack;
+  const pushFrame = () => manual && vtrack.requestFrame();
   const ac = audioCtx();
   let audioNodes: { src: AudioBufferSourceNode; gain: GainNode }[] = [];
   const useAudio = opts.withAudio && p.audio && !p.audio.muted;
@@ -80,7 +83,7 @@ export async function exportVideo(p: Project, fmt: VideoFormat, opts: ExportOpti
   const stopped = new Promise<void>((res) => (rec.onstop = () => res()));
 
   rec.start(250);
-  vtrack.requestFrame();
+  pushFrame();
   // 녹화가 실제로 시작될 때까지 잠깐 기다린다
   await new Promise((r) => setTimeout(r, 60));
   const t0 = ac.currentTime + 0.05;
@@ -125,7 +128,7 @@ export async function exportVideo(p: Project, fmt: VideoFormat, opts: ExportOpti
       if (i >= 0 && i !== last) {
         last = i;
         draw(i);
-        vtrack.requestFrame();
+        pushFrame();
         opts.onProgress?.(i / totalFrames);
       }
       // rAF 는 탭이 가려지면 멈추므로 타이머로 돈다

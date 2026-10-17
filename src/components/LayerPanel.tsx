@@ -2,10 +2,11 @@ import { memo, useEffect, useRef, useState } from 'react';
 import { Eye, EyeOff, Lock, LockOpen, Plus, Copy, Trash2, ArrowUp, ArrowDown, Merge, ImagePlus, Image as ImageIcon, Brush, Grid2x2Check } from 'lucide-react';
 import type { BlendMode, Layer } from '../types';
 import { useEditor, currentLayer } from '../store/editor';
-import { renderFrameCanvas } from '../lib/render';
+import { drawCel } from '../lib/render';
 import { ctx2d } from '../lib/canvas';
 import { pickFile } from '../lib/id';
 import { importFiles } from '../lib/importers';
+import { trackPointer } from '../lib/drag';
 
 export const BLEND_MODES: { value: BlendMode; label: string }[] = [
   { value: 'source-over', label: '표준' },
@@ -29,23 +30,23 @@ const LayerThumb = memo(function LayerThumb({ layerId }: { layerId: string }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const cel = useEditor((s) => s.project?.frames[s.frameIndex]?.cels[layerId]);
   const size = useEditor((s) => (s.project ? `${s.project.width}x${s.project.height}` : ''));
+  const playing = useEditor((s) => s.playing);
   useEffect(() => {
     const c = ref.current;
     const p = useEditor.getState().project;
-    if (!c || !p) return;
-    const fi = useEditor.getState().frameIndex;
-    const full = renderFrameCanvas({ ...p, layers: p.layers.map((l) => ({ ...l, opacity: 1, blend: 'source-over' as const })) }, fi, {
-      background: false,
-      onlyLayerId: layerId,
-    });
+    // 재생 중에는 썸네일을 갱신하지 않는다
+    if (!c || !p || playing) return;
     const s = Math.min(88 / p.width, 64 / p.height);
     c.width = Math.max(1, Math.round(p.width * s));
     c.height = Math.max(1, Math.round(p.height * s));
     const ctx = ctx2d(c);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, c.width, c.height);
+    if (!cel) return;
+    ctx.setTransform(s, 0, 0, s, 0, 0);
     ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(full, 0, 0, c.width, c.height);
-  }, [cel, layerId, size]);
+    drawCel(ctx, p, cel);
+  }, [cel, layerId, size, playing]);
   return (
     <div className="lthumb">
       <canvas ref={ref} style={{ objectFit: 'contain' }} />
@@ -119,39 +120,39 @@ export function LayerPanel() {
     const startY = e.clientY;
     let active = false;
     let target: typeof drop = null;
-    const move = (ev: PointerEvent) => {
-      if (!active && Math.abs(ev.clientY - startY) < 6) return;
-      active = true;
-      const rows = Array.from(listRef.current!.querySelectorAll<HTMLElement>('.layer'));
-      let best: typeof drop = null;
-      for (const r of rows) {
-        const rect = r.getBoundingClientRect();
-        const idx = Number(r.dataset.index);
-        if (ev.clientY < rect.top + rect.height / 2) {
-          // 화면상 위 = 배열상 더 큰 인덱스
-          best = { id, to: idx, mark: { index: idx, pos: 'above' } };
-          break;
+    trackPointer(
+      e,
+      (ev) => {
+        if (ev.pointerType === 'touch') return;
+        if (!active && Math.abs(ev.clientY - startY) < 6) return;
+        active = true;
+        const rows = Array.from(listRef.current!.querySelectorAll<HTMLElement>('.layer'));
+        let best: typeof drop = null;
+        for (const r of rows) {
+          const rect = r.getBoundingClientRect();
+          const idx = Number(r.dataset.index);
+          if (ev.clientY < rect.top + rect.height / 2) {
+            // 화면상 위 = 배열상 더 큰 인덱스
+            best = { id, to: idx, mark: { index: idx, pos: 'above' } };
+            break;
+          }
+          best = { id, to: idx, mark: { index: idx, pos: 'below' } };
         }
-        best = { id, to: idx, mark: { index: idx, pos: 'below' } };
-      }
-      if (best) {
-        const from = layers.findIndex((l) => l.id === id);
-        // 위쪽에 놓으면 그 레이어보다 위(인덱스+1), 아래쪽이면 그 레이어 자리
-        let to = best.mark.pos === 'above' ? best.mark.index + 1 : best.mark.index;
-        if (from < to) to -= 1;
-        best.to = to;
-      }
-      target = best;
-      setDrop(best);
-    };
-    const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-      if (active && target) useEditor.getState().reorderLayer(id, target.to);
-      setDrop(null);
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+        if (best) {
+          const from = layers.findIndex((l) => l.id === id);
+          // 위쪽에 놓으면 그 레이어보다 위(인덱스+1), 아래쪽이면 그 레이어 자리
+          let to = best.mark.pos === 'above' ? best.mark.index + 1 : best.mark.index;
+          if (from < to) to -= 1;
+          best.to = to;
+        }
+        target = best;
+        setDrop(best);
+      },
+      (ev) => {
+        if (ev && active && target) useEditor.getState().reorderLayer(id, target.to);
+        setDrop(null);
+      },
+    );
   };
 
   const shown = [...layers].map((l, i) => ({ l, i })).reverse();

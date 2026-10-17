@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Plus, FolderOpen, Trash2, PenLine, Layers, Music, Film, Copy, Clapperboard } from 'lucide-react';
 import type { ProjectMeta } from '../types';
 import { deleteProject, importProjectFile, listProjects, loadProject, renameProject } from '../lib/storage';
@@ -18,8 +18,13 @@ function timeAgo(t: number) {
 }
 
 function Thumb({ blob }: { blob?: Blob }) {
-  const url = useMemo(() => (blob ? URL.createObjectURL(blob) : null), [blob]);
-  useEffect(() => () => void (url && URL.revokeObjectURL(url)), [url]);
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!blob) return;
+    const u = URL.createObjectURL(blob);
+    setUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [blob]);
   return <div className="thumb">{url ? <img src={url} alt="" /> : <Clapperboard size={28} color="#3a4152" />}</div>;
 }
 

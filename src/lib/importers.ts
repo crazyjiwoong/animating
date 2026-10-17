@@ -25,10 +25,37 @@ export async function importAudioFile(file: Blob, name: string) {
   }
 }
 
+const isImage = (f: File) => f.type.startsWith('image/');
+
+/** 여러 장을 한 레이어에 프레임 순서대로 넣는다 (파일 이름 순) */
+export async function importImageSequence(files: File[]) {
+  const s = useEditor.getState();
+  const sorted = [...files].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  try {
+    const items = await Promise.all(sorted.map(async (f) => ({ blob: f as Blob, name: f.name, bitmap: await createImageBitmap(f) })));
+    s.importImageSequence(items);
+  } catch {
+    s.toast('이미지를 읽을 수 없어요', 'error');
+  }
+}
+
+export async function replaceCurrentImage(file: File) {
+  try {
+    useEditor.getState().replaceImage(file, file.name, await createImageBitmap(file));
+  } catch {
+    useEditor.getState().toast('이미지를 읽을 수 없어요', 'error');
+  }
+}
+
 /** 드롭/선택된 파일들을 종류에 따라 가져온다 */
 export async function importFiles(files: File[]) {
+  const images = files.filter(isImage);
+  if (images.length > 1) {
+    useEditor.getState().set({ dialog: { type: 'imageImport', files: images } });
+    files = files.filter((f) => !isImage(f));
+  }
   for (const f of files) {
-    if (f.type.startsWith('image/')) await importImageBlob(f, f.name);
+    if (isImage(f)) await importImageBlob(f, f.name);
     else if (f.type.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac|flac|webm)$/i.test(f.name)) await importAudioFile(f, f.name);
     else useEditor.getState().toast(`${f.name}: 지원하지 않는 파일이에요`, 'error');
   }
