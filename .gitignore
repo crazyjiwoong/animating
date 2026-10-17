@@ -1,6 +1,6 @@
 node_modules
 dist
-*.local
-.DS_Store
-*.tsbuildinfo
 release
+*.local
+*.tsbuildinfo
+.DS_Store

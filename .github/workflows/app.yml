@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, 'claude/**']
     tags: ['v*']
-    paths-ignore: ['site/**', '**.md']
+    paths: ['app/**', '.github/workflows/app.yml']
   workflow_dispatch:
 
 jobs:
@@ -14,12 +14,16 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: app
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: app/package-lock.json
       - run: npm ci
       - run: npm run build
       - name: 설치 파일 만들기
@@ -31,8 +35,8 @@ jobs:
         with:
           name: AMG-${{ runner.os }}
           path: |
-            release/*.exe
-            release/*.dmg
+            app/release/*.exe
+            app/release/*.dmg
           if-no-files-found: error
           retention-days: 30
 
@@ -46,7 +50,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: ver
-        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(node -p "require('./app/package.json').version")" >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@v4
         with:
           path: dist-installers
