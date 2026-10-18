@@ -4,3 +4,4 @@ release
 *.local
 *.tsbuildinfo
 .DS_Store
+.vite/
