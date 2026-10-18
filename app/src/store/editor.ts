@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Asset, AudioTrack, Camera, CameraKey, Cel, Frame, Layer, LayerKind, Project, Tool, Transform } from '../types';
+import type { Asset, AudioTrack, Camera, CameraKey, Cel, Frame, Layer, LayerKind, Project, RefVideo, Tool, Transform } from '../types';
 import { cameraAt, defaultCamera } from '../lib/motion';
 import { uid, clamp } from '../lib/id';
 import { createCanvas, ctx2d } from '../lib/canvas';
@@ -147,6 +147,9 @@ export interface EditorState {
   updateAudio: (patch: Partial<AudioTrack>) => void;
   updateSettings: (patch: Partial<Pick<Project, 'name' | 'fps' | 'width' | 'height' | 'background'>>) => void;
   extendToAudio: () => void;
+  setRefVideo: (r: RefVideo | null) => void;
+  updateRefVideo: (patch: Partial<RefVideo>) => void;
+  extendToRefVideo: () => void;
 }
 
 const HISTORY_LIMIT = 60;
@@ -821,6 +824,24 @@ export const useEditor = create<EditorState>((set, get) => ({
         }),
       };
     });
+  },
+
+  setRefVideo: (r) => set((s) => (s.project ? { project: { ...s.project, refVideo: r }, dirty: true } : {})),
+  updateRefVideo: (patch) =>
+    set((s) => (s.project?.refVideo ? { project: { ...s.project, refVideo: { ...s.project.refVideo, ...patch } }, dirty: true } : {})),
+  extendToRefVideo: () => {
+    const s = get();
+    const p = s.project!;
+    const r = p.refVideo;
+    if (!r) return;
+    const need = Math.ceil((r.duration - r.trim) * p.fps) + r.startFrame;
+    if (need <= p.frames.length) {
+      s.toast('이미 영상 길이만큼 프레임이 있어요');
+      return;
+    }
+    const add = Array.from({ length: Math.min(3000, need - p.frames.length) }, () => ({ id: uid('f_'), cels: {} }));
+    s.commit('영상 길이에 맞추기', (p) => ({ frames: [...p.frames, ...add] }));
+    s.toast(`빈 프레임 ${add.length}개를 추가했어요`, 'success');
   },
 
   extendToAudio: () => {

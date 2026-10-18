@@ -1,5 +1,5 @@
 import { createStore, get, set, del, entries } from 'idb-keyval';
-import type { Asset, Camera, Cel, Frame, Layer, Project, ProjectMeta, Transform } from '../types';
+import type { Asset, Camera, Cel, Frame, Layer, Project, ProjectMeta, RefVideo, Transform } from '../types';
 import { blobToCanvas, canvasToBlob } from './canvas';
 import { renderThumb } from './render';
 import { decodeAudio } from './audio';
@@ -28,6 +28,7 @@ interface StoredProject {
   frames: { id: string; memo?: string; cels: Record<string, StoredCel> }[];
   assets: { id: string; name: string; blob: Blob }[];
   audio: { name: string; blob: Blob; startFrame: number; trim: number; volume: number; muted: boolean } | null;
+  refVideo?: RefVideo | null;
   camera?: Camera;
   createdAt: number;
   updatedAt: number;
@@ -78,6 +79,7 @@ export async function serialize(p: Project): Promise<StoredProject> {
     audio: p.audio
       ? { name: p.audio.name, blob: p.audio.blob, startFrame: p.audio.startFrame, trim: p.audio.trim, volume: p.audio.volume, muted: p.audio.muted }
       : null,
+    refVideo: p.refVideo ?? null,
     camera: p.camera,
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
@@ -147,6 +149,7 @@ export async function deserialize(s: StoredProject): Promise<Project> {
     frames: frames.length ? frames : [{ id: 'f_0', cels: {} }],
     assets,
     audio,
+    refVideo: s.refVideo ?? null,
     camera: s.camera,
     createdAt: s.createdAt,
     updatedAt: s.updatedAt,

@@ -42,16 +42,18 @@ export interface FileFilter {
 export const desktop: DesktopBridge | null = (window as unknown as { amg?: DesktopBridge }).amg ?? null;
 export const isDesktop = !!desktop;
 
-export type FileKind = 'image' | 'audio' | 'project';
+export type FileKind = 'image' | 'audio' | 'video' | 'project';
 const FILTERS: Record<FileKind, FileFilter> = {
   image: { name: '이미지', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'] },
   audio: { name: '음악', extensions: ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'flac', 'opus'] },
+  video: { name: '영상', extensions: ['mp4', 'mov', 'm4v', 'webm', 'mkv', 'avi'] },
   project: { name: 'AMG 프로젝트', extensions: ['amg', 'ffanim'] },
 };
-const ACCEPT: Record<FileKind, string> = { image: 'image/*', audio: 'audio/*', project: '.amg,.ffanim,application/octet-stream' };
+const ACCEPT: Record<FileKind, string> = { image: 'image/*', audio: 'audio/*', video: 'video/*', project: '.amg,.ffanim,application/octet-stream' };
 const MIME: Record<string, string> = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp', svg: 'image/svg+xml',
   mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', m4a: 'audio/mp4', aac: 'audio/aac', flac: 'audio/flac', opus: 'audio/ogg',
+  mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/mp4', webm: 'video/webm', mkv: 'video/x-matroska', avi: 'video/x-msvideo',
 };
 
 /** 파일 고르기: PC 앱은 운영체제 대화상자, 웹은 브라우저 선택 창 */

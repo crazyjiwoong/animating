@@ -146,6 +146,28 @@ export interface AudioTrack {
   muted: boolean;
 }
 
+/** 레이어 맨 아래에 깔아 두는 참고 영상 (따라 그리기용) */
+export interface RefVideo {
+  name: string;
+  blob: Blob;
+  width: number;
+  height: number;
+  /** 초 */
+  duration: number;
+  /** 영상이 시작되는 프레임 (0부터) */
+  startFrame: number;
+  /** 영상 앞부분을 건너뛸 길이 (초) */
+  trim: number;
+  opacity: number;
+  visible: boolean;
+  /** 흑백으로 보기 (선이 잘 보이게) */
+  gray: boolean;
+  /** contain = 영상 전체가 보이게, cover = 캔버스를 꽉 채우게 */
+  fit: 'contain' | 'cover';
+  /** 내보낼 때도 포함 (기본은 따라 그리기용이라 빠짐) */
+  inExport: boolean;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -159,6 +181,7 @@ export interface Project {
   frames: Frame[];
   assets: Record<string, Asset>;
   audio: AudioTrack | null;
+  refVideo?: RefVideo | null;
   camera?: Camera;
   createdAt: number;
   updatedAt: number;

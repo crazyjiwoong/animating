@@ -1,3 +1,4 @@
+import { isVideoFile, loadRefVideo } from './refvideo';
 import { useEditor } from '../store/editor';
 import { decodeAudio } from './audio';
 
@@ -48,6 +49,20 @@ export async function replaceCurrentImage(file: File) {
 }
 
 /** 드롭/선택된 파일들을 종류에 따라 가져온다 */
+/** 영상을 레이어 맨 아래 참고 영상으로 깔기 */
+export async function importRefVideo(blob: Blob, name: string) {
+  const s = useEditor.getState();
+  try {
+    const r = await loadRefVideo(blob, name);
+    const prev = s.project?.refVideo;
+    // 바꿔 끼울 때는 보기 설정을 그대로
+    s.setRefVideo(prev ? { ...prev, name, blob, width: r.width, height: r.height, duration: r.duration, trim: 0 } : r);
+    s.toast('참고 영상을 깔았어요 · 레이어 패널 맨 아래에서 조절해요', 'success');
+  } catch (e) {
+    s.toast(`${name}: ${(e as Error).message}`, 'error');
+  }
+}
+
 export async function importFiles(files: File[]) {
   const images = files.filter(isImage);
   if (images.length > 1) {
@@ -56,6 +71,7 @@ export async function importFiles(files: File[]) {
   }
   for (const f of files) {
     if (isImage(f)) await importImageBlob(f, f.name);
+    else if (isVideoFile(f)) await importRefVideo(f, f.name);
     else if (f.type.startsWith('audio/') || /\.(mp3|wav|ogg|m4a|aac|flac|webm)$/i.test(f.name)) await importAudioFile(f, f.name);
     else useEditor.getState().toast(`${f.name}: 지원하지 않는 파일이에요`, 'error');
   }

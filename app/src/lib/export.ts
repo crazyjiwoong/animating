@@ -1,4 +1,5 @@
 import { GIFEncoder, quantize, applyPalette } from 'gifenc';
+import { refUnder } from './refvideo';
 import type { Project } from '../types';
 import { createCanvas, ctx2d, canvasToBlob } from './canvas';
 import { renderFrame } from './render';
@@ -50,13 +51,16 @@ export async function exportVideo(p: Project, fmt: VideoFormat, opts: ExportOpti
   const canvas = createCanvas(w, h);
   const ctx = ctx2d(canvas);
   const totalFrames = p.frames.length * Math.max(1, opts.loops);
+  // 실시간 녹화라 참고 영상 장면은 미리 꺼내 둔다
+  const unders: Awaited<ReturnType<typeof refUnder>>[] = [];
+  if (p.refVideo?.inExport) for (let i = 0; i < p.frames.length; i++) unders.push(await refUnder(p, i));
   const draw = (i: number) => {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = opts.background;
     ctx.fillRect(0, 0, w, h);
     ctx.setTransform(w / p.width, 0, 0, h / p.height, 0, 0);
     ctx.imageSmoothingQuality = 'high';
-    renderFrame(ctx, p, i % p.frames.length, { fallbackBackground: opts.background, motion: true, camera: true });
+    renderFrame(ctx, p, i % p.frames.length, { fallbackBackground: opts.background, motion: true, camera: true, under: unders[i % p.frames.length] });
   };
   draw(0);
 
@@ -171,7 +175,7 @@ export async function exportGif(p: Project, opts: Omit<ExportOptions, 'withAudio
     ctx.fillStyle = opts.background;
     ctx.fillRect(0, 0, w, h);
     ctx.setTransform(w / p.width, 0, 0, h / p.height, 0, 0);
-    renderFrame(ctx, p, i, { fallbackBackground: opts.background, motion: true, camera: true });
+    renderFrame(ctx, p, i, { fallbackBackground: opts.background, motion: true, camera: true, under: await refUnder(p, i) });
     const data = ctx.getImageData(0, 0, w, h).data;
     const palette = quantize(data, 256);
     const index = applyPalette(data, palette);
@@ -190,7 +194,7 @@ export async function exportFramePng(p: Project, index: number, scale: number, t
   const c = createCanvas(w, h);
   const ctx = ctx2d(c);
   ctx.setTransform(scale, 0, 0, scale, 0, 0);
-  renderFrame(ctx, p, index, { background: !transparent, motion: true, camera: true });
+  renderFrame(ctx, p, index, { background: !transparent, motion: true, camera: true, under: await refUnder(p, index) });
   return canvasToBlob(c);
 }
 
@@ -211,7 +215,7 @@ export async function exportSpriteSheet(p: Project, scale: number, transparent: 
     ctx.beginPath();
     ctx.rect(0, 0, p.width, p.height);
     ctx.clip();
-    renderFrame(ctx, p, i, { background: !transparent, motion: true, camera: true });
+    renderFrame(ctx, p, i, { background: !transparent, motion: true, camera: true, under: await refUnder(p, i) });
     ctx.restore();
   }
   return canvasToBlob(c);
@@ -267,7 +271,7 @@ export async function exportVideoNative(
       ctx.fillRect(0, 0, w, h);
       ctx.setTransform(w / p.width, 0, 0, h / p.height, 0, 0);
       ctx.imageSmoothingQuality = 'high';
-      renderFrame(ctx, p, i % n, { fallbackBackground: opts.background, motion: true, camera: true });
+      renderFrame(ctx, p, i % n, { fallbackBackground: opts.background, motion: true, camera: true, under: await refUnder(p, i % n) });
       await desktop.video.frame(id, ctx.getImageData(0, 0, w, h).data.buffer);
       opts.onProgress?.((i + 1) / (total + 1));
     }

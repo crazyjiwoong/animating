@@ -8,6 +8,7 @@ import { useView, viewMatrix, toScreenPt, toCanvasPt, panFor } from '../store/vi
 import { live, invalidate, onInvalidate } from '../lib/live';
 import { alphaBounds, checkerPattern, cloneCanvas, createCanvas, ctx2d, floodFillMask, rgbToHex, type Rect } from '../lib/canvas';
 import { DEFAULT_T, drawSourceWithTransform, renderFrameCanvas, renderTinted } from '../lib/render';
+import { drawRefVideo } from '../lib/refvideo';
 import { importFiles } from '../lib/importers';
 
 /* ---------------------------------------------------------------- 캐시 */
@@ -254,7 +255,7 @@ export function Viewport() {
     frameBuf.current = renderFrameCanvas(
       p,
       s.frameIndex,
-      { background: true, override: live.override, motion: s.playing, camera: s.playing && s.cameraView },
+      { background: true, override: live.override, motion: s.playing, camera: s.playing && s.cameraView, under: (c) => drawRefVideo(c, p, s.frameIndex) },
       frameBuf.current ?? undefined,
     );
 

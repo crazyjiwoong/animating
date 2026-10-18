@@ -22,6 +22,8 @@ export interface RenderOptions {
   motion?: boolean;
   /** 카메라(이동·확대·회전·흔들림) 적용 — 재생 미리보기·내보내기 때 */
   camera?: boolean;
+  /** 배경 위·레이어 아래에 그릴 것 (참고 영상) */
+  under?: ((ctx: CanvasRenderingContext2D) => void) | null;
 }
 
 export function applyTransform(ctx: CanvasRenderingContext2D, t: Transform) {
@@ -194,6 +196,7 @@ export function renderFrame(ctx: CanvasRenderingContext2D, project: Project, fra
     ctx.save();
     applyCamera(ctx, project, frameIndex);
   }
+  opts.under?.(ctx);
   const mf = opts.motion ? frameIndex : undefined;
   const layers = project.layers;
   for (let i = 0; i < layers.length; i++) {

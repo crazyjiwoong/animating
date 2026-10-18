@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react';
-import { Sparkles, Palette, CornerLeftDown, RotateCcw, ChevronDown, ChevronRight, Eye, EyeOff, Lock, LockOpen, Plus, Copy, Trash2, ArrowUp, ArrowDown, Merge, ImagePlus, Image as ImageIcon, Brush, Grid2x2Check } from 'lucide-react';
+import { Film, Sparkles, Palette, CornerLeftDown, RotateCcw, ChevronDown, ChevronRight, Eye, EyeOff, Lock, LockOpen, Plus, Copy, Trash2, ArrowUp, ArrowDown, Merge, ImagePlus, Image as ImageIcon, Brush, Grid2x2Check } from 'lucide-react';
 import type { BlendMode, Layer, LayerFx, MotionKind } from '../types';
 import { DEFAULT_MOTION, MOTIONS } from '../lib/motion';
 import { DEFAULT_FX, FX_PRESETS, isDefaultFx } from '../lib/fx';
@@ -7,7 +7,8 @@ import { useEditor, currentLayer } from '../store/editor';
 import { drawCel } from '../lib/render';
 import { ctx2d } from '../lib/canvas';
 import { openFiles } from '../lib/platform';
-import { importFiles } from '../lib/importers';
+import { importFiles, importRefVideo } from '../lib/importers';
+import { refTime } from '../lib/refvideo';
 import { trackPointer } from '../lib/drag';
 
 export const BLEND_MODES: { value: BlendMode; label: string }[] = [
@@ -27,6 +28,96 @@ export const BLEND_MODES: { value: BlendMode; label: string }[] = [
   { value: 'color', label: '컬러' },
   { value: 'luminosity', label: '광도' },
 ];
+
+/** 레이어 맨 아래의 참고 영상 줄 */
+function RefRow({ selected, onSelect }: { selected: boolean; onSelect: () => void }) {
+  const r = useEditor((s) => s.project!.refVideo!);
+  const update = useEditor((s) => s.updateRefVideo);
+  const inRange = useEditor((s) => refTime(s.project!, s.frameIndex) !== null);
+  return (
+    <div className={'layer ref-row' + (selected ? ' sel' : '') + (r.visible ? '' : ' hidden')} onPointerDown={(e) => !(e.target as HTMLElement).closest('button') && onSelect()}>
+      <span className="tag" style={{ background: '#5b6478' }} />
+      <button className="icon-btn sm" onClick={() => update({ visible: !r.visible })} title={r.visible ? '숨기기' : '보이기'}>
+        {r.visible ? <Eye size={14} /> : <EyeOff size={14} />}
+      </button>
+      <div className="lthumb ref-thumb">
+        <Film size={18} />
+      </div>
+      <div className="lname">
+        <b>참고 영상</b>
+        <span>
+          {Math.round(r.opacity * 100)}% · {inRange ? r.name : '이 프레임엔 영상 없음'}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function RefProps({ onReplace }: { onReplace: () => void }) {
+  const r = useEditor((s) => s.project!.refVideo!);
+  const fps = useEditor((s) => s.project!.fps);
+  const frameIndex = useEditor((s) => s.frameIndex);
+  const frames = useEditor((s) => s.project!.frames.length);
+  const s = useEditor.getState();
+  const update = s.updateRefVideo;
+  const total = Math.ceil((r.duration - r.trim) * fps);
+  return (
+    <div className="layer-props ref-props">
+      <div className="muted" style={{ fontSize: 11.5 }}>
+        <Film size={12} style={{ verticalAlign: -2 }} /> 따라 그리기용 영상 · 항상 모든 레이어 아래에 있어요
+      </div>
+      <div className="row" style={{ gap: 10 }}>
+        <span className="label" style={{ width: 58 }}>불투명도</span>
+        <input type="range" className="grow" min={5} max={100} value={Math.round(r.opacity * 100)} style={{ ['--p' as string]: `${((r.opacity * 100 - 5) / 95) * 100}%` }} onChange={(e) => update({ opacity: Number(e.target.value) / 100 })} />
+        <span className="s-value" style={{ fontSize: 12, fontWeight: 600, width: 34, textAlign: 'right' }}>{Math.round(r.opacity * 100)}%</span>
+      </div>
+      <div className="row">
+        <span className="label" style={{ width: 58 }}>크기</span>
+        <div className="seg grow">
+          <button className={r.fit === 'contain' ? 'on' : ''} onClick={() => update({ fit: 'contain' })}>
+            전체 보이기
+          </button>
+          <button className={r.fit === 'cover' ? 'on' : ''} onClick={() => update({ fit: 'cover' })}>
+            꽉 채우기
+          </button>
+        </div>
+      </div>
+      <div className="row">
+        <span className="label" style={{ width: 58 }}>시작 프레임</span>
+        <input type="number" className="input" style={{ width: 64, height: 28 }} min={1} value={r.startFrame + 1} onChange={(e) => update({ startFrame: Math.max(0, (Number(e.target.value) || 1) - 1) })} />
+        <button className="btn sm ghost" onClick={() => update({ startFrame: frameIndex })} title="지금 보고 있는 프레임에서 영상이 시작되게">
+          지금 프레임부터
+        </button>
+      </div>
+      <div className="row">
+        <span className="label" style={{ width: 58 }}>앞부분 건너뛰기</span>
+        <input type="number" className="input" style={{ width: 64, height: 28 }} min={0} step={0.1} value={Number(r.trim.toFixed(2))} onChange={(e) => update({ trim: Math.min(Math.max(0, Number(e.target.value) || 0), Math.max(0, r.duration - 0.05)) })} />
+        <span className="muted" style={{ fontSize: 11.5 }}>초 (영상 {r.duration.toFixed(1)}초)</span>
+      </div>
+      <div className="row">
+        <span className="grow" style={{ fontSize: 12 }}>흑백으로 보기 (선이 잘 보여요)</span>
+        <button type="button" className={'toggle' + (r.gray ? ' on' : '')} onClick={() => update({ gray: !r.gray })} aria-pressed={r.gray} aria-label="흑백으로 보기" />
+      </div>
+      <div className="row">
+        <span className="grow" style={{ fontSize: 12 }}>내보낼 때도 넣기</span>
+        <button type="button" className={'toggle' + (r.inExport ? ' on' : '')} onClick={() => update({ inExport: !r.inExport })} aria-pressed={r.inExport} aria-label="내보낼 때도 넣기" />
+      </div>
+      <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
+        {r.startFrame + total > frames && (
+          <button className="btn sm" onClick={() => s.extendToRefVideo()} title={`영상이 끝날 때까지 빈 프레임 추가 (${fps}fps 기준 ${total}장)`}>
+            영상 길이만큼 프레임 늘리기
+          </button>
+        )}
+        <button className="btn sm ghost" onClick={onReplace}>
+          다른 영상으로
+        </button>
+        <button className="btn sm ghost danger" onClick={() => s.setRefVideo(null)}>
+          빼기
+        </button>
+      </div>
+    </div>
+  );
+}
 
 const LayerThumb = memo(function LayerThumb({ layerId }: { layerId: string }) {
   const ref = useRef<HTMLCanvasElement>(null);
@@ -131,6 +222,21 @@ export function LayerPanel() {
   const update = useEditor((s) => s.updateLayer);
   const listRef = useRef<HTMLDivElement>(null);
   const [drop, setDrop] = useState<{ id: string; to: number; mark: { index: number; pos: 'above' | 'below' } } | null>(null);
+  const hasRef = useEditor((s) => !!s.project?.refVideo);
+  // 참고 영상 줄을 골랐는지 (레이어를 누르면 풀린다)
+  const [refSel, setRefSel] = useState(false);
+  const layerId = useEditor((s) => s.layerId);
+  useEffect(() => setRefSel(false), [layerId]);
+  useEffect(() => {
+    if (!hasRef) setRefSel(false);
+  }, [hasRef]);
+  const addRef = async () => {
+    const [f] = await openFiles('video');
+    if (f) {
+      await importRefVideo(f, f.name);
+      setRefSel(true);
+    }
+  };
 
   // 포인터로 순서 바꾸기
   const onDragStart = (e: React.PointerEvent, id: string) => {
@@ -178,6 +284,9 @@ export function LayerPanel() {
       <div className="panel-head">
         레이어 <span className="muted" style={{ fontWeight: 500 }}>{layers.length}</span>
         <span className="grow" />
+        <button className="icon-btn sm" title="참고 영상 깔기 (따라 그리기용 · 레이어 맨 아래)" onClick={addRef}>
+          <Film size={14} />
+        </button>
         <button className="icon-btn sm" title="이미지 가져오기" onClick={async () => importFiles(await openFiles('image', true))}>
           <ImagePlus size={14} />
         </button>
@@ -185,7 +294,8 @@ export function LayerPanel() {
           <Plus size={15} />
         </button>
       </div>
-      {layer && (
+      {refSel && hasRef && <RefProps onReplace={addRef} />}
+      {layer && !refSel && (
         <div className="layer-props">
           <div className="row" style={{ gap: 10 }}>
             <span className="label" style={{ width: 42 }}>불투명도</span>
@@ -284,6 +394,7 @@ export function LayerPanel() {
         {shown.map(({ l, i }) => (
           <LayerRow key={l.id} layer={l} index={i} onDragStart={onDragStart} dropMark={drop && drop.mark.index === i ? drop.mark.pos : null} />
         ))}
+        {hasRef && <RefRow selected={refSel} onSelect={() => setRefSel(true)} />}
       </div>
       {layer && (
         <div className="layer-tools">

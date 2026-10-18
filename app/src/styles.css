@@ -2102,3 +2102,17 @@ input[type='range']::-moz-range-thumb {
   background: none;
   cursor: pointer;
 }
+
+/* ---- 참고 영상 ---- */
+.layer.ref-row {
+  border-top: 1px dashed rgba(255, 255, 255, 0.1);
+}
+.layer .ref-thumb {
+  display: grid;
+  place-items: center;
+  color: #9aa3b8;
+  background: repeating-linear-gradient(90deg, #2a3040 0 6px, #232836 6px 12px);
+}
+.ref-props {
+  background: rgba(120, 140, 180, 0.06);
+}
