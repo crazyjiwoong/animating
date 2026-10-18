@@ -1,4 +1,5 @@
-import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, FlipHorizontal2, FlipVertical2, RotateCcw, Crosshair, History, ImageUp, Slash, Square, Circle, Lasso, Check, Trash2 } from 'lucide-react';
+import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, FlipHorizontal2, FlipVertical2, RotateCcw, Crosshair, History, ImageUp, Slash, Square, Circle, Lasso, Check, Trash2, Plus, Maximize } from 'lucide-react';
+import { cameraAt, cameraKeysByIndex } from '../lib/motion';
 import { cancelSelection, commitSelection, deleteSelection } from '../lib/selection';
 import { openFiles } from '../lib/platform';
 import { replaceCurrentImage } from '../lib/importers';
@@ -45,6 +46,56 @@ function ShapeProps() {
       <div className="muted" style={{ fontSize: 11.5 }}>
         <span className="kbd">Shift</span> 정사각형 · 정원 · 45° 직선
       </div>
+    </>
+  );
+}
+
+function CameraProps() {
+  const p = useEditor((s) => s.project)!;
+  const fi = useEditor((s) => s.frameIndex);
+  const cameraView = useEditor((s) => s.cameraView);
+  const st = useEditor.getState();
+  const cam = p.camera;
+  const v = cameraAt(p, fi);
+  const hasKey = !!cam?.keys.some((k) => k.frameId === p.frames[fi].id);
+  const keyCount = cam ? cameraKeysByIndex(p).length : 0;
+  const set = (patch: Parameters<typeof st.setCameraKey>[1], k = 'num') => st.setCameraKey(fi, patch, `cam-${k}:${fi}`);
+  return (
+    <>
+      <Toggle label="카메라 사용 (내보내기·재생에 적용)" on={!!cam?.enabled} onChange={(enabled) => st.updateCamera({ enabled })} />
+      <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.55 }}>
+        캔버스의 주황색 틀이 영상에 보일 화면이에요. 틀을 끌어 옮기고, 모서리로 확대, 위 동그라미로 회전하면 이 프레임에 <b style={{ color: 'var(--text)' }}>키</b>가 생겨요. 키와 키 사이는 자동으로 이어져요.
+      </div>
+      <div className="grid2" style={{ gap: 8 }}>
+        <NumField label="X" value={v.x} onChange={(x) => set({ x })} />
+        <NumField label="Y" value={v.y} onChange={(y) => set({ y })} />
+        <NumField label="확대" value={v.zoom * 100} onChange={(z) => set({ zoom: Math.max(5, z) / 100 })} suffix="%" />
+        <NumField label="회전" value={v.rotation} onChange={(rotation) => set({ rotation })} suffix="°" />
+      </div>
+      <div className="row" style={{ gap: 4, flexWrap: 'wrap' }}>
+        {hasKey ? (
+          <button className="btn sm danger" onClick={() => st.deleteCameraKey(fi)}>
+            <Trash2 size={13} /> 이 프레임 키 삭제
+          </button>
+        ) : (
+          <button className="btn sm primary" onClick={() => set({}, 'add')}>
+            <Plus size={13} /> 이 프레임에 키 추가
+          </button>
+        )}
+        <button className="btn sm" onClick={() => set({ x: p.width / 2, y: p.height / 2, zoom: 1, rotation: 0 }, 'home')} title="전체 화면이 보이게">
+          <Maximize size={13} /> 전체 보기
+        </button>
+      </div>
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <span className="label">키 사이 움직임</span>
+        <div className="seg">
+          <button className={(cam?.ease ?? 'smooth') === 'smooth' ? 'on' : ''} onClick={() => st.updateCamera({ ease: 'smooth' })}>부드럽게</button>
+          <button className={cam?.ease === 'linear' ? 'on' : ''} onClick={() => st.updateCamera({ ease: 'linear' })}>일정하게</button>
+        </div>
+      </div>
+      <Slider label="화면 흔들림" value={cam?.shake ?? 0} min={0} max={100} onChange={(shake) => st.updateCamera({ shake, enabled: true }, 'shake')} format={(x) => (x ? `${x}` : '없음')} />
+      <Toggle label="재생할 때 카메라 화면으로 보기" on={cameraView} onChange={(cameraView) => st.set({ cameraView })} />
+      <div className="muted" style={{ fontSize: 11.5 }}>키 {keyCount}개 · 타임라인 ‘카메라’ 줄의 ◆ 를 우클릭하면 지워요</div>
     </>
   );
 }
@@ -211,6 +262,7 @@ export function ToolPanel() {
             <Toggle label="모든 레이어 참조 (선화 기준 채우기)" on={fill.allLayers} onChange={(allLayers) => set({ fill: { ...fill, allLayers } })} />
           </>
         )}
+        {tool === 'camera' && <CameraProps />}
         {tool === 'move' && <SelectProps />}
         {tool === 'move' && <MoveProps />}
         {tool === 'picker' && <div className="muted">캔버스를 눌러 색을 가져와요. 브러시 사용 중 <span className="kbd">Alt</span> 를 누르고 있어도 돼요.</div>}

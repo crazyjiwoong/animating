@@ -1,12 +1,13 @@
 import { create } from 'zustand';
-import type { Asset, AudioTrack, Cel, Frame, Layer, LayerKind, Project, Tool, Transform } from '../types';
+import type { Asset, AudioTrack, Camera, CameraKey, Cel, Frame, Layer, LayerKind, Project, Tool, Transform } from '../types';
+import { cameraAt, defaultCamera } from '../lib/motion';
 import { uid, clamp } from '../lib/id';
 import { createCanvas, ctx2d } from '../lib/canvas';
 import { DEFAULT_T, drawCel } from '../lib/render';
 
 export const LAYER_COLORS = ['#8b7bff', '#ff6fb5', '#45b8ff', '#5ee38c', '#ffb340', '#ff5d73', '#3fd6c6', '#c06bff'];
 
-type Snapshot = Pick<Project, 'layers' | 'frames' | 'width' | 'height' | 'background' | 'fps' | 'name'> & {
+type Snapshot = Pick<Project, 'layers' | 'frames' | 'width' | 'height' | 'background' | 'fps' | 'name' | 'camera'> & {
   frameIndex: number;
   layerId: string;
   label: string;
@@ -72,6 +73,8 @@ export interface EditorState {
   onion: OnionSettings;
   shape: { kind: ShapeKind; fill: boolean };
   selShape: SelShape;
+  /** 재생할 때 카메라가 보는 화면으로 미리보기 */
+  cameraView: boolean;
   /** 범위를 지정해 떠 있는 그림이 있는지 (화면 표시용) */
   selectionActive: boolean;
   grid: { enabled: boolean; size: number; safe: boolean };
@@ -124,6 +127,10 @@ export interface EditorState {
 
   /* ---- 셀 ---- */
   setCel: (frameIndex: number, layerId: string, cel: Cel | null, label: string, key?: string) => void;
+  /** 이 프레임에 카메라 키를 만들거나 고친다 (처음이면 카메라 켜기) */
+  setCameraKey: (frameIndex: number, v: Partial<Omit<CameraKey, 'frameId'>>, key?: string) => void;
+  deleteCameraKey: (frameIndex: number) => void;
+  updateCamera: (patch: Partial<Camera>, key?: string) => void;
   setExposure: (layerId: string, start: number, end: number, length: number, mode?: 'ripple' | 'overwrite') => void;
   splitRun: (layerId: string, frameIndex: number) => void;
   setTransform: (frameIndex: number, layerId: string, t: Partial<Transform>, key?: string) => void;
@@ -230,6 +237,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   onion: { enabled: true, before: 1, after: 0, opacity: 0.3, mode: 'plain', skipSame: true },
   shape: { kind: 'rect', fill: false },
   selShape: 'lasso',
+  cameraView: true,
   selectionActive: false,
   grid: { enabled: false, size: 64, safe: false },
   flipView: false,
@@ -271,6 +279,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     const snap: Snapshot = {
       layers: p.layers,
       frames: p.frames,
+      camera: p.camera,
       width: p.width,
       height: p.height,
       background: p.background,
@@ -300,9 +309,9 @@ export const useEditor = create<EditorState>((set, get) => ({
     const p = s.project;
     const snap = s.past[s.past.length - 1];
     if (!p || !snap) return;
-    const cur: Snapshot = { ...snap, layers: p.layers, frames: p.frames, width: p.width, height: p.height, background: p.background, fps: p.fps, name: p.name, frameIndex: s.frameIndex, layerId: s.layerId };
+    const cur: Snapshot = { ...snap, layers: p.layers, frames: p.frames, camera: p.camera, width: p.width, height: p.height, background: p.background, fps: p.fps, name: p.name, frameIndex: s.frameIndex, layerId: s.layerId };
     set({
-      project: { ...p, layers: snap.layers, frames: snap.frames, width: snap.width, height: snap.height, background: snap.background, fps: snap.fps, name: snap.name },
+      project: { ...p, layers: snap.layers, frames: snap.frames, camera: snap.camera, width: snap.width, height: snap.height, background: snap.background, fps: snap.fps, name: snap.name },
       past: s.past.slice(0, -1),
       future: [...s.future, cur],
       frameIndex: clamp(snap.frameIndex, 0, snap.frames.length - 1),
@@ -317,9 +326,9 @@ export const useEditor = create<EditorState>((set, get) => ({
     const p = s.project;
     const snap = s.future[s.future.length - 1];
     if (!p || !snap) return;
-    const cur: Snapshot = { ...snap, layers: p.layers, frames: p.frames, width: p.width, height: p.height, background: p.background, fps: p.fps, name: p.name, frameIndex: s.frameIndex, layerId: s.layerId, key: undefined };
+    const cur: Snapshot = { ...snap, layers: p.layers, frames: p.frames, camera: p.camera, width: p.width, height: p.height, background: p.background, fps: p.fps, name: p.name, frameIndex: s.frameIndex, layerId: s.layerId, key: undefined };
     set({
-      project: { ...p, layers: snap.layers, frames: snap.frames, width: snap.width, height: snap.height, background: snap.background, fps: snap.fps, name: snap.name },
+      project: { ...p, layers: snap.layers, frames: snap.frames, camera: snap.camera, width: snap.width, height: snap.height, background: snap.background, fps: snap.fps, name: snap.name },
       future: s.future.slice(0, -1),
       past: [...s.past, cur],
       frameIndex: clamp(snap.frameIndex, 0, snap.frames.length - 1),
@@ -582,6 +591,34 @@ export const useEditor = create<EditorState>((set, get) => ({
     );
   },
 
+  setCameraKey: (frameIndex, v, key) => {
+    const s = get();
+    const p = s.project!;
+    const f = p.frames[frameIndex];
+    if (!f) return;
+    const cam = p.camera ?? defaultCamera();
+    const cur = cameraAt(p, frameIndex);
+    const old = cam.keys.find((k) => k.frameId === f.id);
+    const next: CameraKey = { ...(old ?? { frameId: f.id, ...cur }), ...v, frameId: f.id };
+    s.commit(
+      old ? '카메라 키 수정' : '카메라 키 추가',
+      () => ({ camera: { ...cam, enabled: true, keys: [...cam.keys.filter((k) => k.frameId !== f.id), next] } }),
+      key ? { key } : undefined,
+    );
+  },
+
+  deleteCameraKey: (frameIndex) => {
+    const s = get();
+    const p = s.project!;
+    const f = p.frames[frameIndex];
+    if (!f || !p.camera?.keys.some((k) => k.frameId === f.id)) return;
+    s.commit('카메라 키 삭제', (p) => ({ camera: { ...p.camera!, keys: p.camera!.keys.filter((k) => k.frameId !== f.id) } }));
+  },
+
+  updateCamera: (patch, key) => {
+    get().commit('카메라 설정', (p) => ({ camera: { ...(p.camera ?? defaultCamera()), ...patch } }), key ? { key } : undefined);
+  },
+
   setExposure: (layerId, start, end, length, mode) => {
     const s = get();
     const p = s.project!;
@@ -810,7 +847,7 @@ export function currentCel(s: EditorState): Cel | undefined {
 /* ---------------------------------------------------------------- 환경 설정 저장 */
 
 const PREF_KEYS = [
-  'onion', 'shape', 'selShape', 'grid', 'playSpeed', 'exposureMode', 'scrubSound', 'timelineCol', 'timelineH',
+  'onion', 'shape', 'selShape', 'cameraView', 'grid', 'playSpeed', 'exposureMode', 'scrubSound', 'timelineCol', 'timelineH',
   'brush', 'eraser', 'fill', 'recentColors', 'loop',
 ] as const;
 const PREF_STORAGE = 'frameflow-prefs';

@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useState } from 'react';
-import { Eye, EyeOff, Lock, LockOpen, Plus, Copy, Trash2, ArrowUp, ArrowDown, Merge, ImagePlus, Image as ImageIcon, Brush, Grid2x2Check } from 'lucide-react';
-import type { BlendMode, Layer } from '../types';
+import { Sparkles, Eye, EyeOff, Lock, LockOpen, Plus, Copy, Trash2, ArrowUp, ArrowDown, Merge, ImagePlus, Image as ImageIcon, Brush, Grid2x2Check } from 'lucide-react';
+import type { BlendMode, Layer, MotionKind } from '../types';
+import { DEFAULT_MOTION, MOTIONS } from '../lib/motion';
 import { useEditor, currentLayer } from '../store/editor';
 import { drawCel } from '../lib/render';
 import { ctx2d } from '../lib/canvas';
@@ -97,6 +98,11 @@ function LayerRow({ layer, index, dropMark, onDragStart }: { layer: Layer; index
           {layer.kind === 'image' ? <ImageIcon size={11} /> : <Brush size={11} />}
           {Math.round(layer.opacity * 100)}% · {BLEND_MODES.find((b) => b.value === layer.blend)?.label}
           {layer.alphaLock && <Grid2x2Check size={11} />}
+          {layer.motion && layer.motion.kind !== 'none' && (
+            <span className="motion-badge" title={MOTIONS.find((m) => m.kind === layer.motion!.kind)?.label}>
+              <Sparkles size={10} /> {MOTIONS.find((m) => m.kind === layer.motion!.kind)?.label}
+            </span>
+          )}
         </span>
       </div>
       <button className={'icon-btn sm' + (layer.locked ? ' active' : '')} onClick={() => update(layer.id, { locked: !layer.locked })} title={layer.locked ? '잠금 해제' : '잠그기'}>
@@ -202,6 +208,56 @@ export function LayerPanel() {
               </button>
             )}
           </div>
+          <div className="row">
+            <span className="label" style={{ width: 42 }}>움직임</span>
+            <select
+              className="select grow"
+              style={{ height: 28 }}
+              value={layer.motion?.kind ?? 'none'}
+              onChange={(e) => update(layer.id, { motion: { ...DEFAULT_MOTION, ...layer.motion, kind: e.target.value as MotionKind } })}
+              title="재생·내보내기 때 이 레이어가 자동으로 움직여요"
+            >
+              {MOTIONS.map((m) => (
+                <option key={m.kind} value={m.kind}>
+                  {m.label}
+                  {m.desc ? ` — ${m.desc}` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+          {layer.motion && layer.motion.kind !== 'none' && (
+            <div className="motion-box">
+              {layer.motion.kind !== 'spin' && (
+                <div className="row" style={{ gap: 10 }}>
+                  <span className="label" style={{ width: 42 }}>세기</span>
+                  <input
+                    type="range"
+                    className="grow"
+                    min={5}
+                    max={100}
+                    value={layer.motion.amount}
+                    style={{ ['--p' as string]: `${layer.motion.amount}%` }}
+                    onChange={(e) => update(layer.id, { motion: { ...layer.motion!, amount: Number(e.target.value) } }, 'motion-amount')}
+                  />
+                </div>
+              )}
+              <div className="row" style={{ gap: 10 }}>
+                <span className="label" style={{ width: 42 }}>속도</span>
+                <input
+                  type="range"
+                  className="grow"
+                  min={0.25}
+                  max={4}
+                  step={0.25}
+                  value={layer.motion.speed}
+                  style={{ ['--p' as string]: `${((layer.motion.speed - 0.25) / 3.75) * 100}%` }}
+                  onChange={(e) => update(layer.id, { motion: { ...layer.motion!, speed: Number(e.target.value) } }, 'motion-speed')}
+                />
+                <span className="s-value" style={{ fontSize: 11.5, width: 46, textAlign: 'right' }}>{layer.motion.speed}회/초</span>
+              </div>
+              <div className="muted" style={{ fontSize: 11 }}>▶ 재생하거나 내보낼 때 움직여요 (그릴 때는 멈춰 있어요)</div>
+            </div>
+          )}
         </div>
       )}
       <div className="layer-list" ref={listRef}>

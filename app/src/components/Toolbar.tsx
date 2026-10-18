@@ -1,4 +1,4 @@
-import { Brush, Eraser, Shapes, Move, PaintBucket, Pipette, Hand, Undo2, Redo2, ImagePlus } from 'lucide-react';
+import { Brush, Eraser, Shapes, Video, Move, PaintBucket, Pipette, Hand, Undo2, Redo2, ImagePlus } from 'lucide-react';
 import type { Tool } from '../types';
 import { useEditor } from '../store/editor';
 import { openFiles } from '../lib/platform';
@@ -9,6 +9,7 @@ export const TOOLS: { id: Tool; icon: typeof Brush; label: string; key: string }
   { id: 'eraser', icon: Eraser, label: '지우개', key: 'E' },
   { id: 'shape', icon: Shapes, label: '도형', key: 'U' },
   { id: 'move', icon: Move, label: '이동 · 변형', key: 'V' },
+  { id: 'camera', icon: Video, label: '카메라', key: 'C' },
   { id: 'fill', icon: PaintBucket, label: '채우기', key: 'G' },
   { id: 'picker', icon: Pipette, label: '스포이드', key: 'I' },
   { id: 'hand', icon: Hand, label: '손 (스페이스)', key: 'H' },

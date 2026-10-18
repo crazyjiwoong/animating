@@ -22,6 +22,13 @@ export interface Rect {
   h: number;
 }
 
+const boundsCache = new WeakMap<HTMLCanvasElement, Rect | null>();
+/** alphaBounds 캐시판 — 커밋된 캔버스는 바뀌지 않으므로 안전 */
+export function cachedBounds(c: HTMLCanvasElement): Rect | null {
+  if (!boundsCache.has(c)) boundsCache.set(c, alphaBounds(c));
+  return boundsCache.get(c)!;
+}
+
 /** 불투명 픽셀이 있는 영역. 비어 있으면 null */
 export function alphaBounds(c: HTMLCanvasElement): Rect | null {
   const { width: w, height: h } = c;

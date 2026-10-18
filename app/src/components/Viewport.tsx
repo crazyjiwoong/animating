@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { ZoomIn, ZoomOut, Maximize, Lock, EyeOff, Grid3x3, Scan, FlipHorizontal2 } from 'lucide-react';
+import { ZoomIn, ZoomOut, Maximize, Lock, EyeOff, Grid3x3, Scan, FlipHorizontal2, RotateCcw, RotateCw } from 'lucide-react';
 import type { Frame, Layer, Project, Transform } from '../types';
 import { useEditor, currentLayer, type ShapeKind, type SelShape } from '../store/editor';
+import { cameraAt } from '../lib/motion';
 import { sel, makeSelection, shapeOutline, updateSelection, commitSelection, outlineNow, type Pt } from '../lib/selection';
-import { useView } from '../store/view';
+import { useView, viewMatrix, toScreenPt, toCanvasPt, panFor } from '../store/view';
 import { live, invalidate, onInvalidate } from '../lib/live';
 import { alphaBounds, checkerPattern, cloneCanvas, createCanvas, ctx2d, floodFillMask, rgbToHex, type Rect } from '../lib/canvas';
 import { DEFAULT_T, drawSourceWithTransform, renderFrameCanvas, renderTinted } from '../lib/render';
@@ -63,12 +64,13 @@ function onionCanvas(p: Project, i: number, cur: number, tint: string | null) {
   return canvas;
 }
 
-/** 캔버스 좌표 → 화면 좌표 (좌우 반전 보기 반영) */
-function toScreen(x: number, y: number): [number, number] {
-  const v = useView.getState();
-  const s = useEditor.getState();
-  const w = s.project?.width ?? 0;
-  return [v.panX + (s.flipView ? w - x : x) * v.zoom, v.panY + y * v.zoom];
+/** 캔버스 좌표 → 화면 좌표 (확대·회전·좌우 반전 반영) */
+const toScreen = toScreenPt;
+
+/** 카메라가 보는 영역 (캔버스 좌표의 상자) */
+function cameraBox(p: Project, i: number): Box {
+  const c = cameraAt(p, i);
+  return { w: p.width, h: p.height, t: { ...DEFAULT_T, x: c.x, y: c.y, scale: 1 / c.zoom, rotation: c.rotation } };
 }
 
 function drawShape(ctx: CanvasRenderingContext2D, kind: ShapeKind, a: { x: number; y: number }, b: { x: number; y: number }, fill: boolean, color: string, size: number) {
@@ -137,6 +139,7 @@ function insideBox(b: Box, x: number, y: number) {
 
 type Drag =
   | { type: 'pan'; sx: number; sy: number; px: number; py: number }
+  | { type: 'rotateView'; a0: number; r0: number }
   | {
       type: 'stroke';
       layerId: string;
@@ -159,7 +162,7 @@ type Drag =
       mode: 'move' | 'scale' | 'rotate';
       layerId: string;
       frameIndex: number;
-      kind: 'image' | 'raster' | 'selection';
+      kind: 'image' | 'raster' | 'selection' | 'camera';
       src: CanvasImageSource & { width: number; height: number };
       t0: Transform;
       t: Transform;
@@ -184,7 +187,7 @@ type Drag =
       opacity: number;
       alphaLock: boolean;
     }
-  | { type: 'pinch'; d0: number; z0: number; cx: number; cy: number; mx: number; my: number }
+  | { type: 'pinch'; d0: number; z0: number; a0: number; r0: number; cx: number; cy: number; mx: number; my: number }
   /** 이동 도구: 꾹 누르는지 보는 중 (움직이면 이동, 가만히 있으면 범위 지정) */
   | { type: 'pending'; downPt: { x: number; y: number }; downC: Pt; timer: number }
   /** 이동 도구: 꾹 누른 뒤 범위를 그리는 중 */
@@ -214,13 +217,15 @@ export function Viewport() {
   const hover = useRef<{ x: number; y: number } | null>(null);
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [altHeld, setAltHeld] = useState(false);
+  const [rHeld, setRHeld] = useState(false);
+  const viewRot = useView((s) => s.rotation);
   const [dropping, setDropping] = useState(false);
   const tool = useEditor((s) => s.tool);
   const layer = useEditor(currentLayer);
   const zoom = useView((s) => s.zoom);
   const fitTick = useView((s) => s.fitTick);
   const projectSize = useEditor((s) => (s.project ? `${s.project.width}x${s.project.height}` : ''));
-  const keys = useRef({ space: false, alt: false });
+  const keys = useRef({ space: false, alt: false, r: false });
 
   /* ---------------- 그리기 */
   const raf = useRef(0);
@@ -245,35 +250,37 @@ export function Viewport() {
 
     const showOnion = s.onion.enabled && !s.playing;
     // 현재 프레임 합성
-    frameBuf.current = renderFrameCanvas(p, s.frameIndex, { background: true, override: live.override }, frameBuf.current ?? undefined);
+    // 재생 중에는 기본 애니메이션과 카메라까지 적용해서 실제 결과처럼
+    frameBuf.current = renderFrameCanvas(
+      p,
+      s.frameIndex,
+      { background: true, override: live.override, motion: s.playing, camera: s.playing && s.cameraView },
+      frameBuf.current ?? undefined,
+    );
 
+    // 보기 행렬 (확대·이동·회전·좌우 반전)
+    const m = new DOMMatrix().scale(dpr, dpr).multiply(viewMatrix(v));
+    ctx.setTransform(m);
     // 종이 그림자
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const x0 = v.panX,
-      y0 = v.panY,
-      pw = p.width * v.zoom,
-      ph = p.height * v.zoom;
     ctx.save();
     ctx.shadowColor = 'rgba(0,0,0,0.55)';
     ctx.shadowBlur = 30;
     ctx.shadowOffsetY = 8;
     ctx.fillStyle = '#fff';
-    ctx.fillRect(x0, y0, pw, ph);
+    ctx.fillRect(0, 0, p.width, p.height);
     ctx.restore();
     // 배경 (투명이면 체크무늬)
     ctx.save();
     ctx.beginPath();
-    ctx.rect(x0, y0, pw, ph);
+    ctx.rect(0, 0, p.width, p.height);
     ctx.clip();
     if (p.background) {
       ctx.fillStyle = p.background;
-      ctx.fillRect(x0, y0, pw, ph);
+      ctx.fillRect(0, 0, p.width, p.height);
     } else {
       ctx.fillStyle = checkerPattern(ctx);
-      ctx.fillRect(x0, y0, pw, ph);
+      ctx.fillRect(0, 0, p.width, p.height);
     }
-    const flip = s.flipView;
-    ctx.setTransform(dpr * v.zoom * (flip ? -1 : 1), 0, 0, dpr * v.zoom, dpr * (flip ? x0 + pw : x0), dpr * y0);
     ctx.imageSmoothingEnabled = v.zoom < 2;
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(frameBuf.current, 0, 0);
@@ -329,13 +336,61 @@ export function Viewport() {
     ctx.restore();
 
     // 테두리
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(x0 - 0.5, y0 - 0.5, pw + 1, ph + 1);
+    ctx.lineWidth = 1 / v.zoom;
+    ctx.strokeRect(0, 0, p.width, p.height);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     // 변형 상자
     const d = drag.current;
+    /** 변형 상자: 테두리 · 모서리 손잡이 · 회전 손잡이 */
+    const drawHandles = (pts: number[][], color: string) => {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+      ctx.closePath();
+      ctx.stroke();
+      const [tl, tr] = pts;
+      const rot = rotHandle(pts);
+      ctx.beginPath();
+      ctx.moveTo((tl[0] + tr[0]) / 2, (tl[1] + tr[1]) / 2);
+      ctx.lineTo(rot[0], rot[1]);
+      ctx.stroke();
+      ctx.fillStyle = '#fff';
+      for (const [x, y] of pts) {
+        ctx.beginPath();
+        ctx.rect(x - 5, y - 5, 10, 10);
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.beginPath();
+      ctx.arc(rot[0], rot[1], 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    };
+
+    // 카메라 틀 (카메라 도구)
+    if (s.tool === 'camera' && !s.playing) {
+      const box = d?.type === 'transform' && d.kind === 'camera' ? { w: d.w, h: d.h, t: d.t } : cameraBox(p, s.frameIndex);
+      const pts = boxCorners(box).map(([x, y]) => toScreen(x, y));
+      // 바깥 어둡게
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, canvas.width / dpr, canvas.height / dpr);
+      pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(8,10,16,0.55)';
+      ctx.fill('evenodd');
+      ctx.restore();
+      drawHandles(pts, '#ffb340');
+      const hasKey = !!p.camera?.keys.some((k) => k.frameId === p.frames[s.frameIndex].id);
+      ctx.font = '600 12px Pretendard Variable, sans-serif';
+      ctx.fillStyle = '#ffb340';
+      ctx.fillText(hasKey ? '🎥 카메라 · 이 프레임에 키 있음' : '🎥 카메라 · 끌면 이 프레임에 키가 생겨요', pts[0][0] + 6, pts[0][1] - 8);
+    }
+
     // 개미 줄 (흰 선 + 검은 점선)
     const ants = (pts: Pt[], closed: boolean) => {
       if (pts.length < 2) return;
@@ -374,35 +429,7 @@ export function Viewport() {
       if (f) box = { w: f.piece.width, h: f.piece.height, t: f.t };
       else if (d?.type === 'transform') box = { w: d.w, h: d.h, t: d.t };
       else if (d?.type !== 'select') box = targetBox(p, s.frameIndex, s.layerId);
-      if (box) {
-        const pts = boxCorners(box).map(([x, y]) => toScreen(x, y));
-        ctx.strokeStyle = '#8b7bff';
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([]);
-        ctx.beginPath();
-        pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
-        ctx.closePath();
-        ctx.stroke();
-        const [tl, tr] = pts;
-        const mx = (tl[0] + tr[0]) / 2,
-          my = (tl[1] + tr[1]) / 2;
-        const rot = rotHandle(pts);
-        ctx.beginPath();
-        ctx.moveTo(mx, my);
-        ctx.lineTo(rot[0], rot[1]);
-        ctx.stroke();
-        ctx.fillStyle = '#fff';
-        for (const [x, y] of pts) {
-          ctx.beginPath();
-          ctx.rect(x - 5, y - 5, 10, 10);
-          ctx.fill();
-          ctx.stroke();
-        }
-        ctx.beginPath();
-        ctx.arc(rot[0], rot[1], 6, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
-      }
+      if (box) drawHandles(boxCorners(box).map(([x, y]) => toScreen(x, y)), '#8b7bff');
     }
 
     // 브러시 커서
@@ -478,8 +505,12 @@ export function Viewport() {
     const p = useEditor.getState().project;
     const v = useView.getState();
     if (!p || !v.stageW) return;
-    const z = Math.min((v.stageW - 64) / p.width, (v.stageH - 64) / p.height, 4);
-    v.setView({ zoom: z, panX: (v.stageW - p.width * z) / 2, panY: (v.stageH - p.height * z) / 2 });
+    // 회전돼 있으면 돌아간 종이 전체가 들어오게
+    const r = (v.rotation * Math.PI) / 180;
+    const bw = Math.abs(p.width * Math.cos(r)) + Math.abs(p.height * Math.sin(r));
+    const bh = Math.abs(p.width * Math.sin(r)) + Math.abs(p.height * Math.cos(r));
+    const z = Math.min((v.stageW - 64) / bw, (v.stageH - 64) / bh, 4);
+    v.setView({ zoom: z, ...panFor(v.stageW / 2, v.stageH / 2, p.width / 2, p.height / 2, z, v.rotation) });
   }, [fitTick, projectSize]);
 
   // 스페이스(손 도구) / Alt(스포이드)
@@ -492,6 +523,10 @@ export function Viewport() {
         setSpaceHeld(true);
         e.preventDefault();
         schedule();
+      }
+      if ((e.key === 'r' || e.key === 'R') && !e.ctrlKey && !e.metaKey) {
+        keys.current.r = true;
+        setRHeld(true);
       }
       if (e.key === 'Alt') {
         keys.current.alt = true;
@@ -506,6 +541,10 @@ export function Viewport() {
         setSpaceHeld(false);
         schedule();
       }
+      if (e.key === 'r' || e.key === 'R') {
+        keys.current.r = false;
+        setRHeld(false);
+      }
       if (e.key === 'Alt') {
         keys.current.alt = false;
         setAltHeld(false);
@@ -513,7 +552,8 @@ export function Viewport() {
       }
     };
     const blur = () => {
-      keys.current = { space: false, alt: false };
+      keys.current = { space: false, alt: false, r: false };
+      setRHeld(false);
       setSpaceHeld(false);
       setAltHeld(false);
     };
@@ -532,12 +572,7 @@ export function Viewport() {
     const r = stageRef.current!.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   };
-  const toCanvas = (sx: number, sy: number) => {
-    const v = useView.getState();
-    const s = useEditor.getState();
-    const x = (sx - v.panX) / v.zoom;
-    return { x: s.flipView ? (s.project?.width ?? 0) - x : x, y: (sy - v.panY) / v.zoom };
-  };
+  const toCanvas = toCanvasPt;
 
   /* ---------------- 포인터 */
   const cancelDrag = () => {
@@ -565,13 +600,18 @@ export function Viewport() {
       const mx = (a.x + b.x) / 2,
         my = (a.y + b.y) / 2;
       const c = toCanvas(mx, my);
-      drag.current = { type: 'pinch', d0: Math.hypot(a.x - b.x, a.y - b.y), z0: v.zoom, cx: c.x, cy: c.y, mx, my };
+      drag.current = { type: 'pinch', d0: Math.hypot(a.x - b.x, a.y - b.y), z0: v.zoom, a0: Math.atan2(b.y - a.y, b.x - a.x), r0: v.rotation, cx: c.x, cy: c.y, mx, my };
       return;
     }
     if (pointers.current.size > 2) return;
     if (s.playing) s.set({ playing: false });
 
     const tool = keys.current.space || e.button === 1 ? 'hand' : keys.current.alt && (s.tool === 'brush' || s.tool === 'fill') ? 'picker' : s.tool;
+    if (keys.current.r) {
+      // R 누른 채 드래그 = 화면 회전
+      drag.current = { type: 'rotateView', a0: Math.atan2(pt.y - v.stageH / 2, pt.x - v.stageW / 2), r0: v.rotation };
+      return;
+    }
     if (tool === 'hand') {
       drag.current = { type: 'pan', sx: pt.x, sy: pt.y, px: v.panX, py: v.panY };
       return;
@@ -586,6 +626,28 @@ export function Viewport() {
       if (x < 0 || y < 0 || x >= p.width || y >= p.height) return;
       const d = ctx2d(comp, { willReadFrequently: true }).getImageData(x, y, 1, 1).data;
       s.setColor(rgbToHex(d[0], d[1], d[2]));
+      return;
+    }
+
+    if (tool === 'camera') {
+      const box = cameraBox(p, s.frameIndex);
+      const mode = hitBox(box, pt, c);
+      if (!mode) return;
+      drag.current = {
+        type: 'transform',
+        mode,
+        layerId: '',
+        frameIndex: s.frameIndex,
+        kind: 'camera',
+        src: frameBuf.current!,
+        t0: { ...box.t },
+        t: { ...box.t },
+        w: box.w,
+        h: box.h,
+        start: c,
+        startAngle: Math.atan2(c.y - box.t.y, c.x - box.t.x),
+        startDist: Math.hypot(c.x - box.t.x, c.y - box.t.y) || 1,
+      };
       return;
     }
 
@@ -862,12 +924,22 @@ export function Viewport() {
       const mx = (a.x + b.x) / 2,
         my = (a.y + b.y) / 2;
       const zoom = Math.min(32, Math.max(0.05, (d.z0 * Math.hypot(a.x - b.x, a.y - b.y)) / d.d0));
-      const cx = s.flipView ? (s.project?.width ?? 0) - d.cx : d.cx;
-      v.setView({ zoom, panX: mx - cx * zoom, panY: my - d.cy * zoom });
+      // 두 손가락을 돌리면 화면도 회전 (0°·90° 근처에서는 딱 붙음)
+      let rotation = d.r0 + ((Math.atan2(b.y - a.y, b.x - a.x) - d.a0) * 180) / Math.PI;
+      const snap = Math.round(rotation / 90) * 90;
+      if (Math.abs(rotation - snap) < 5) rotation = snap;
+      rotation = ((((rotation + 180) % 360) + 360) % 360) - 180;
+      v.setView({ zoom, rotation, ...panFor(mx, my, d.cx, d.cy, zoom, rotation) });
       return;
     }
     if (d.type === 'pan') {
       v.setView({ panX: d.px + pt.x - d.sx, panY: d.py + pt.y - d.sy });
+      return;
+    }
+    if (d.type === 'rotateView') {
+      let r = d.r0 + ((Math.atan2(pt.y - v.stageH / 2, pt.x - v.stageW / 2) - d.a0) * 180) / Math.PI;
+      if (e.shiftKey) r = Math.round(r / 15) * 15;
+      v.setRotation(r);
       return;
     }
     if (d.type === 'stroke') {
@@ -939,7 +1011,12 @@ export function Viewport() {
         if (e.shiftKey) a = Math.round(a / 15) * 15;
         t.rotation = ((a % 360) + 540) % 360 - 180;
       }
+      if (d.kind === 'camera') t.scale = Math.min(20, Math.max(0.05, t.scale));
       d.t = t;
+      if (d.kind === 'camera') {
+        invalidate();
+        return;
+      }
       if (d.kind === 'selection') {
         updateSelection(t);
         return;
@@ -989,6 +1066,12 @@ export function Viewport() {
       invalidate();
       return;
     }
+    if (d.type === 'transform' && d.kind === 'camera') {
+      const moved = d.t.x !== d.t0.x || d.t.y !== d.t0.y || d.t.scale !== d.t0.scale || d.t.rotation !== d.t0.rotation;
+      if (moved) s.setCameraKey(d.frameIndex, { x: d.t.x, y: d.t.y, zoom: 1 / d.t.scale, rotation: d.t.rotation });
+      invalidate();
+      return;
+    }
     if (d.type === 'shape') {
       live.override = null;
       if (Math.hypot(d.end.x - d.start.x, d.end.y - d.start.y) > 1) s.setCel(d.frameIndex, d.layerId, { kind: 'raster', canvas: d.work }, '도형');
@@ -1030,15 +1113,17 @@ export function Viewport() {
     }
   };
 
-  const effTool = spaceHeld ? 'hand' : altHeld && (tool === 'brush' || tool === 'fill') ? 'picker' : tool;
+  const effTool = rHeld ? 'rotate' : spaceHeld ? 'hand' : altHeld && (tool === 'brush' || tool === 'fill') ? 'picker' : tool;
   const cursor =
-    effTool === 'hand'
+    effTool === 'rotate'
+      ? 'alias'
+      : effTool === 'hand'
       ? drag.current?.type === 'pan'
         ? 'grabbing'
         : 'grab'
       : effTool === 'brush' || effTool === 'eraser'
         ? 'none'
-        : effTool === 'move'
+        : effTool === 'move' || effTool === 'camera'
           ? 'move'
           : 'crosshair';
   const flipView = useEditor((s) => s.flipView);
@@ -1097,6 +1182,16 @@ export function Viewport() {
         </button>
         <button className="icon-btn sm" onClick={() => useView.getState().fit()} title="화면 맞춤 (0)">
           <Maximize size={13} />
+        </button>
+        <span className="hud-sep" />
+        <button className="icon-btn sm" onClick={() => useView.getState().setRotation(viewRot - 15)} title="왼쪽으로 15° 돌리기 (R 누른 채 드래그로 자유 회전)">
+          <RotateCcw size={13} />
+        </button>
+        <button className="zoom" style={{ minWidth: 40 }} onClick={() => useView.getState().setRotation(0)} title="회전 원래대로">
+          {Math.round(viewRot)}°
+        </button>
+        <button className="icon-btn sm" onClick={() => useView.getState().setRotation(viewRot + 15)} title="오른쪽으로 15° 돌리기">
+          <RotateCw size={13} />
         </button>
         <span className="hud-sep" />
         <button className={'icon-btn sm' + (grid.enabled ? ' active' : '')} onClick={() => useEditor.getState().set({ grid: { ...grid, enabled: !grid.enabled } })} title="격자 (')">

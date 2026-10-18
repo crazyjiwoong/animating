@@ -29,6 +29,38 @@ export interface Layer {
   blend: BlendMode;
   /** 타임라인/레이어 패널에 표시되는 색 태그 */
   color: string;
+  /** 기본 애니메이션 (재생·내보내기 때 자동으로 움직임) */
+  motion?: LayerMotion;
+}
+
+export type MotionKind = 'none' | 'shake' | 'bob' | 'sway' | 'spin' | 'swing' | 'pulse';
+
+export interface LayerMotion {
+  kind: MotionKind;
+  /** 세기 0~100 */
+  amount: number;
+  /** 1초에 몇 번 (0.25~4) */
+  speed: number;
+}
+
+/** 카메라 키: 이 프레임에서 카메라가 보는 곳 */
+export interface CameraKey {
+  /** 프레임을 옮기거나 끼워 넣어도 따라가도록 프레임 id 로 저장 */
+  frameId: string;
+  /** 화면 가운데가 볼 캔버스 좌표 */
+  x: number;
+  y: number;
+  /** 1 = 그대로, 2 = 2배 확대 */
+  zoom: number;
+  rotation: number;
+}
+
+export interface Camera {
+  enabled: boolean;
+  keys: CameraKey[];
+  ease: 'smooth' | 'linear';
+  /** 화면 흔들림 0~100 */
+  shake: number;
 }
 
 /** 이미지 레이어용 비파괴 변형. x/y = 이미지 중심의 캔버스 좌표 */
@@ -100,11 +132,12 @@ export interface Project {
   frames: Frame[];
   assets: Record<string, Asset>;
   audio: AudioTrack | null;
+  camera?: Camera;
   createdAt: number;
   updatedAt: number;
 }
 
-export type Tool = 'brush' | 'eraser' | 'shape' | 'move' | 'fill' | 'picker' | 'hand';
+export type Tool = 'brush' | 'eraser' | 'shape' | 'move' | 'camera' | 'fill' | 'picker' | 'hand';
 
 export interface ProjectMeta {
   id: string;

@@ -3,7 +3,7 @@ import { Modal } from '../ui';
 
 const LIST: [string, string][] = [
   ['브러시 / 지우개 / 도형', 'B / E / U'],
-  ['이동·변형 / 채우기', 'V / G'],
+  ['이동·변형 / 카메라 / 채우기', 'V / C / G'],
   ['스포이드 / 손', 'I / H'],
   ['임시 손 도구', 'Space 누른 채 드래그'],
   ['임시 스포이드', 'Alt 누른 채 클릭'],
@@ -28,6 +28,7 @@ const LIST: [string, string][] = [
   ['프레임 설정', '프레임 두 번 누르기'],
   ['그림 길이 조절', '타임라인 막대 끝 끌기 · 우클릭 메뉴'],
   ['격자 / 좌우 반전 보기', "' / M"],
+  ['화면 회전', 'R 누른 채 드래그 (Shift = 15°)'],
 ];
 
 export function ShortcutsDialog({ onClose }: { onClose: () => void }) {

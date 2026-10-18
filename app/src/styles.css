@@ -1967,3 +1967,46 @@ input[type='range']::-moz-range-thumb {
   padding-bottom: 12px;
   border-bottom: 1px solid var(--line);
 }
+.motion-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 179, 64, 0.07);
+  border: 1px solid rgba(255, 179, 64, 0.25);
+}
+.motion-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: rgba(255, 179, 64, 0.15);
+  color: #ffc56b;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.tl-cam-key {
+  position: absolute;
+  top: 50%;
+  width: 11px;
+  height: 11px;
+  margin: -6px 0 0 -6px;
+  transform: rotate(45deg);
+  background: #ffb340;
+  border: 1.5px solid #fff;
+  border-radius: 2px;
+  box-shadow: 0 0 8px rgba(255, 179, 64, 0.6);
+  cursor: pointer;
+  z-index: 1;
+}
+.tl-cam-line {
+  position: absolute;
+  top: 50%;
+  height: 2px;
+  margin-top: -1px;
+  background: rgba(255, 179, 64, 0.45);
+  pointer-events: none;
+}

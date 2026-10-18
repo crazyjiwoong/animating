@@ -1,5 +1,6 @@
 import type { Cel, Frame, Layer, Project, Transform } from '../types';
 import { createCanvas, ctx2d } from './canvas';
+import { applyCamera, applyMotion, cameraActive } from './motion';
 
 export const DEFAULT_T: Transform = { x: 0, y: 0, scale: 1, rotation: 0, flipX: false, flipY: false, opacity: 1 };
 
@@ -16,6 +17,10 @@ export interface RenderOptions {
   override?: LayerOverride | null;
   /** 레이어 표시 여부 무시하고 특정 레이어만 */
   onlyLayerId?: string;
+  /** 레이어 기본 애니메이션(떨림·둥실 등) 적용 — 재생·내보내기 때 */
+  motion?: boolean;
+  /** 카메라(이동·확대·회전·흔들림) 적용 — 재생 미리보기·내보내기 때 */
+  camera?: boolean;
 }
 
 export function applyTransform(ctx: CanvasRenderingContext2D, t: Transform) {
@@ -52,11 +57,13 @@ export function drawLayer(
   layer: Layer,
   frame: Frame,
   override?: LayerOverride | null,
+  motionFrame?: number,
 ) {
   const cel = frame.cels[layer.id];
   const ov = override && override.layerId === layer.id ? override : null;
   if (!cel && !ov) return;
   ctx.save();
+  if (motionFrame !== undefined && cel) applyMotion(ctx, project, layer, cel, motionFrame);
   ctx.globalAlpha = layer.opacity;
   ctx.globalCompositeOperation = layer.blend;
   if (ov) ov.draw(ctx);
@@ -77,12 +84,18 @@ export function renderFrame(ctx: CanvasRenderingContext2D, project: Project, fra
     }
   }
   if (!frame) return;
+  const cam = opts.camera && cameraActive(project);
+  if (cam) {
+    ctx.save();
+    applyCamera(ctx, project, frameIndex);
+  }
   for (const layer of project.layers) {
     if (opts.onlyLayerId) {
       if (layer.id !== opts.onlyLayerId) continue;
     } else if (!layer.visible) continue;
-    drawLayer(ctx, project, layer, frame, opts.override);
+    drawLayer(ctx, project, layer, frame, opts.override, opts.motion ? frameIndex : undefined);
   }
+  if (cam) ctx.restore();
 }
 
 export function renderFrameCanvas(project: Project, frameIndex: number, opts: RenderOptions = {}, target?: HTMLCanvasElement) {

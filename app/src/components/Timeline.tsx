@@ -1,12 +1,13 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Play, Pause, SkipBack, SkipForward, ChevronLeft, ChevronRight, Repeat, Ghost, Plus, CopyPlus, Trash2, Music, Eye, EyeOff,
-  Volume2, VolumeX, SlidersHorizontal, Settings2, ArrowRightToLine, ArrowLeftToLine, MoveHorizontal, Scissors,
+  Volume2, VolumeX, SlidersHorizontal, Settings2, Video, ArrowRightToLine, ArrowLeftToLine, MoveHorizontal, Scissors,
 } from 'lucide-react';
 import type { Frame, Layer } from '../types';
 import { useEditor, runAt } from '../store/editor';
 import { renderThumb } from '../lib/render';
 import { framePeaks, formatTime } from '../lib/audio';
+import { cameraKeysByIndex } from '../lib/motion';
 import { openFiles } from '../lib/platform';
 import { importAudioFile } from '../lib/importers';
 import { trackPointer } from '../lib/drag';
@@ -365,6 +366,8 @@ export function Timeline() {
   const lastTap = useRef({ t: 0, i: -1 });
   const [dragFrame, setDragFrame] = useState<{ from: number; to: number } | null>(null);
 
+  const tool = useEditor((s) => s.tool);
+  const camKeys = useMemo(() => cameraKeysByIndex(p), [p.camera, p.frames]);
   const n = p.frames.length;
   const start = Math.max(0, Math.floor((view.left - LABEL_W) / col) - 4);
   const end = Math.min(n, Math.ceil((view.left + view.width) / col) + 4);
@@ -589,6 +592,38 @@ export function Timeline() {
           {layersTopFirst.map((l) => (
             <LayerRow key={l.id} layer={l} frames={p.frames} start={start} end={end} col={col} selected={l.id === layerId} cur={l.id === layerId ? fi : -1} onCell={onCell} onTap={onTap} onMenu={setMenu} rawFrameAt={rawFrameAt} />
           ))}
+          {(p.camera?.keys.length || tool === 'camera') && (
+            <div className="tl-row layer-row">
+              <div className={'tl-label' + (tool === 'camera' ? ' sel' : '')} style={{ width: LABEL_W }} onPointerDown={() => st.set({ tool: 'camera' })}>
+                <Video size={13} color="#ffb340" />
+                <span className="nm">카메라</span>
+                {p.camera && !p.camera.enabled && <span className="muted" style={{ fontSize: 10 }}>꺼짐</span>}
+              </div>
+              {spacer}
+              {Array.from({ length: end - start }, (_, k) => (
+                <div key={start + k} className="tl-cell" style={{ width: col }} onPointerDown={() => onCell(start + k)} />
+              ))}
+              {camKeys.slice(1).map((e, k) => (
+                <div key={'l' + e.i} className="tl-cam-line" style={{ left: LABEL_W + camKeys[k].i * col + col / 2, width: (e.i - camKeys[k].i) * col }} />
+              ))}
+              {camKeys.map((e) => (
+                <div
+                  key={e.i}
+                  className="tl-cam-key"
+                  style={{ left: LABEL_W + e.i * col + col / 2 }}
+                  title={`프레임 ${e.i + 1} 카메라 키 · 우클릭으로 삭제`}
+                  onPointerDown={() => {
+                    st.setFrame(e.i);
+                    st.set({ tool: 'camera' });
+                  }}
+                  onContextMenu={(ev) => {
+                    ev.preventDefault();
+                    st.deleteCameraKey(e.i);
+                  }}
+                />
+              ))}
+            </div>
+          )}
           {p.audio ? (
             <div className="tl-row audio">
               <div className="tl-label" style={{ width: LABEL_W, height: 56, flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'center', gap: 2 }}>
