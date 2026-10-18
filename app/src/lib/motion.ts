@@ -3,6 +3,8 @@ import { cachedBounds } from './canvas';
 
 export const MOTIONS: { kind: MotionKind; label: string; desc: string }[] = [
   { kind: 'none', label: '없음', desc: '' },
+  { kind: 'jitter', label: '살짝 떨림', desc: '가만히 있어도 살아 있는 느낌' },
+  { kind: 'boil', label: '선 꿈틀 (손그림 느낌)', desc: '선이 살짝살짝 일렁여요' },
   { kind: 'shake', label: '덜덜 떨림', desc: '무섭거나 추울 때, 화날 때' },
   { kind: 'bob', label: '위아래 둥실', desc: '떠 있는 물건, 숨쉬기' },
   { kind: 'sway', label: '좌우 왔다갔다', desc: '걷는 느낌, 구름' },
@@ -40,6 +42,14 @@ export function motionOffset(m: LayerMotion | undefined, seed: string, frame: nu
       const k = Math.floor(frame / step);
       return { dx: noise(seed, k * 3) * 24 * a, dy: noise(seed, k * 3 + 1) * 24 * a, rot: noise(seed, k * 3 + 2) * 4 * a, scale: 1 };
     }
+    case 'jitter': {
+      // 2프레임마다 아주 조금씩 — 손으로 다시 그린 듯한 떨림
+      const step = Math.max(1, Math.round(fps / (8 * m.speed)));
+      const k = Math.floor(frame / step);
+      return { dx: noise(seed, k * 3) * 6 * a, dy: noise(seed, k * 3 + 1) * 6 * a, rot: noise(seed, k * 3 + 2) * 0.8 * a, scale: 1 };
+    }
+    case 'boil':
+      return null; // 위치는 그대로, 선만 일렁인다 (boilFilter)
     case 'bob':
       return { dx: 0, dy: -Math.sin(w) * 60 * a, rot: 0, scale: 1 };
     case 'sway':
@@ -52,6 +62,107 @@ export function motionOffset(m: LayerMotion | undefined, seed: string, frame: nu
       return { dx: 0, dy: 0, rot: 0, scale: 1 + Math.max(0, Math.sin(w)) * 0.35 * a };
   }
   return null;
+}
+
+/* ---------------------------------------------------------------- 선 꿈틀 (line boil) */
+
+/**
+ * 손그림 애니메이션의 '선 꿈틀': 같은 그림을 매번 조금 다르게 일그러뜨린다.
+ * 그림 3장을 번갈아 쓰는 것처럼 3가지 모양을 돌려 쓴다.
+ * c 는 출력 해상도의 캔버스, scale = 실제 출력 배율. 그 자리에서 바꾼다.
+ */
+export function boilVariant(m: LayerMotion, frame: number, fps: number) {
+  const step = Math.max(1, Math.round(fps / (6 * m.speed)));
+  return Math.floor(frame / step) % 3;
+}
+
+export function applyBoil(c: HTMLCanvasElement, m: LayerMotion, seed: string, variant: number, scale: number) {
+  const amp = (m.amount / 100) * 5 * scale;
+  if (amp < 0.3) return;
+  const W = c.width,
+    H = c.height;
+  const ctx = c.getContext('2d', { willReadFrequently: true })!;
+  const src = ctx.getImageData(0, 0, W, H);
+  const s = src.data;
+  // 그림이 있는 범위만 (조금 넓혀서)
+  let x0 = W,
+    y0 = H,
+    x1 = -1,
+    y1 = -1;
+  const px32 = new Uint32Array(s.buffer, s.byteOffset, W * H);
+  for (let y = 0; y < H; y++) {
+    const row = y * W;
+    for (let x = 0; x < W; x++) {
+      if (px32[row + x]) {
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        y1 = y;
+      }
+    }
+  }
+  if (x1 < 0) return;
+  const pad = Math.ceil(amp) + 1;
+  x0 = Math.max(0, x0 - pad);
+  y0 = Math.max(0, y0 - pad);
+  x1 = Math.min(W - 1, x1 + pad);
+  y1 = Math.min(H - 1, y1 + pad);
+  // 격자점마다 정해진 방향 → 사이는 부드럽게 이어서 선이 꺾이지 않는다
+  const cell = Math.max(8, 44 * scale);
+  const gw = Math.ceil(W / cell) + 2;
+  const gh = Math.ceil(H / cell) + 2;
+  const key = seed + '#' + variant;
+  const gx = new Float32Array(gw * gh),
+    gy = new Float32Array(gw * gh);
+  for (let k = 0; k < gw * gh; k++) {
+    gx[k] = noise(key, k * 2) * amp;
+    gy[k] = noise(key, k * 2 + 1) * amp;
+  }
+  const out = ctx.createImageData(x1 - x0 + 1, y1 - y0 + 1);
+  const o = out.data;
+  const ow = out.width;
+  for (let y = y0; y <= y1; y++) {
+    const fy = y / cell;
+    const iy = Math.floor(fy);
+    let ty = fy - iy;
+    ty = ty * ty * (3 - 2 * ty);
+    for (let x = x0; x <= x1; x++) {
+      const fx = x / cell;
+      const ix = Math.floor(fx);
+      let tx = fx - ix;
+      tx = tx * tx * (3 - 2 * tx);
+      const a = iy * gw + ix,
+        b = a + 1,
+        cc = a + gw,
+        d = cc + 1;
+      const dx = (gx[a] * (1 - tx) + gx[b] * tx) * (1 - ty) + (gx[cc] * (1 - tx) + gx[d] * tx) * ty;
+      const dy = (gy[a] * (1 - tx) + gy[b] * tx) * (1 - ty) + (gy[cc] * (1 - tx) + gy[d] * tx) * ty;
+      // 부드럽게 보간해서 읽기 (가장 가까운 픽셀만 쓰면 선이 계단처럼 꺾인다)
+      const px = x + dx,
+        py = y + dy;
+      const sx = Math.floor(px),
+        sy = Math.floor(py);
+      if (sx < 0 || sy < 0 || sx >= W - 1 || sy >= H - 1) continue;
+      const u = px - sx,
+        v = py - sy;
+      const i00 = (sy * W + sx) * 4,
+        i10 = i00 + 4,
+        i01 = i00 + W * 4,
+        i11 = i01 + 4;
+      const w00 = (1 - u) * (1 - v) * s[i00 + 3],
+        w10 = u * (1 - v) * s[i10 + 3],
+        w01 = (1 - u) * v * s[i01 + 3],
+        w11 = u * v * s[i11 + 3];
+      const al = w00 + w10 + w01 + w11;
+      if (al <= 0) continue;
+      const oi = ((y - y0) * ow + (x - x0)) * 4;
+      o[oi] = (s[i00] * w00 + s[i10] * w10 + s[i01] * w01 + s[i11] * w11) / al;
+      o[oi + 1] = (s[i00 + 1] * w00 + s[i10 + 1] * w10 + s[i01 + 1] * w01 + s[i11 + 1] * w11) / al;
+      o[oi + 2] = (s[i00 + 2] * w00 + s[i10 + 2] * w10 + s[i01 + 2] * w01 + s[i11 + 2] * w11) / al;
+      o[oi + 3] = al;
+    }
+  }
+  ctx.putImageData(out, x0, y0);
 }
 
 /** 움직임의 기준점 = 그 프레임 그림의 가운데 */

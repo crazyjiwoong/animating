@@ -1,6 +1,6 @@
 import type { Cel, Frame, Layer, Project, Transform } from '../types';
 import { createCanvas, ctx2d } from './canvas';
-import { applyCamera, applyMotion, cameraActive } from './motion';
+import { applyBoil, boilVariant, applyCamera, applyMotion, cameraActive } from './motion';
 import { filterString, isDefaultFx } from './fx';
 
 export const DEFAULT_T: Transform = { x: 0, y: 0, scale: 1, rotation: 0, flipX: false, flipY: false, opacity: 1 };
@@ -111,26 +111,66 @@ function temp(slot: number, like: CanvasRenderingContext2D) {
   return t;
 }
 
+/** 선 꿈틀 결과 캐시: 그림(셀)마다 모양 3가지만 있으니 한 번 만든 건 다시 쓴다 */
+const boilCache = new Map<object, { sig: string; byVariant: Map<number, HTMLCanvasElement> }>();
+const BOIL_CACHE_MAX = 24; // 그림 수 (메모리 보호)
+
+function boiled(raw: CanvasRenderingContext2D, project: Project, layer: Layer, frame: Frame, override: LayerOverride | null | undefined, motionFrame: number, scale: number) {
+  const m = layer.motion!;
+  const variant = boilVariant(m, motionFrame, project.fps);
+  const cel = frame.cels[layer.id];
+  const live = override && override.layerId === layer.id;
+  if (!cel || live) return applyBoil(raw.canvas, m, layer.id, variant, scale);
+  const t = raw.getTransform();
+  const sig = [raw.canvas.width, raw.canvas.height, t.a, t.b, t.c, t.d, t.e, t.f, m.amount, m.speed, layer.id].join(',');
+  let entry = boilCache.get(cel);
+  if (entry) boilCache.delete(cel); // 최근 것으로 옮기기
+  if (!entry || entry.sig !== sig) entry = { sig, byVariant: new Map() };
+  boilCache.set(cel, entry);
+  if (boilCache.size > BOIL_CACHE_MAX) boilCache.delete(boilCache.keys().next().value!);
+  const hit = entry.byVariant.get(variant);
+  if (hit) {
+    raw.save();
+    raw.setTransform(1, 0, 0, 1, 0, 0);
+    raw.clearRect(0, 0, raw.canvas.width, raw.canvas.height);
+    raw.drawImage(hit, 0, 0);
+    raw.restore();
+    return;
+  }
+  applyBoil(raw.canvas, m, layer.id, variant, scale);
+  const keep = createCanvas(raw.canvas.width, raw.canvas.height);
+  ctx2d(keep).drawImage(raw.canvas, 0, 0);
+  entry.byVariant.set(variant, keep);
+}
+
+/** 효과 없이 바로 그려도 되는 레이어인가 */
+function plain(layer: Layer, motionFrame: number | undefined) {
+  return isDefaultFx(layer.fx) && (motionFrame === undefined || layer.motion?.kind !== 'boil');
+}
+
 /** 효과까지 적용한 레이어 내용을 out 에 그린다 (out 은 비어 있어야 함) */
 function drawWithFx(out: CanvasRenderingContext2D, project: Project, layer: Layer, frame: Frame, override: LayerOverride | null | undefined, motionFrame: number | undefined, slot: number) {
-  const fx = layer.fx;
-  if (isDefaultFx(fx)) return drawLayerContent(out, project, layer, frame, override, motionFrame);
+  if (plain(layer, motionFrame)) return drawLayerContent(out, project, layer, frame, override, motionFrame);
+  const fx = isDefaultFx(layer.fx) ? null : layer.fx!;
   const raw = temp(slot, out);
   if (!drawLayerContent(raw, project, layer, frame, override, motionFrame)) return false;
-  if (fx!.tint) {
+  const m = out.getTransform();
+  const scale = Math.hypot(m.a, m.b) || 1;
+  // 선 꿈틀 (재생·내보내기 때만)
+  if (motionFrame !== undefined && layer.motion?.kind === 'boil') boiled(raw, project, layer, frame, override, motionFrame, scale);
+  if (fx?.tint) {
     // 색 입히기: 그림이 있는 곳에만 색을 덮는다
     raw.save();
     raw.setTransform(1, 0, 0, 1, 0, 0);
     raw.globalCompositeOperation = 'source-atop';
-    raw.globalAlpha = fx!.tint / 100;
-    raw.fillStyle = fx!.tintColor;
+    raw.globalAlpha = fx.tint / 100;
+    raw.fillStyle = fx.tintColor;
     raw.fillRect(0, 0, raw.canvas.width, raw.canvas.height);
     raw.restore();
   }
-  const m = out.getTransform();
   out.save();
   out.setTransform(1, 0, 0, 1, 0, 0);
-  out.filter = filterString(fx!, Math.hypot(m.a, m.b) || 1);
+  out.filter = fx ? filterString(fx, scale) : 'none';
   out.drawImage(raw.canvas, 0, 0);
   out.restore();
   return true;
@@ -173,7 +213,7 @@ export function renderFrame(ctx: CanvasRenderingContext2D, project: Project, fra
     }
     i = j - 1;
     if (!base.visible) continue;
-    if (!clips.length && isDefaultFx(base.fx)) {
+    if (!clips.length && plain(base, mf)) {
       drawLayer(ctx, project, base, frame, opts.override, mf);
       continue;
     }
@@ -184,7 +224,7 @@ export function renderFrame(ctx: CanvasRenderingContext2D, project: Project, fra
     let mask = B.canvas;
     if (clips.length && !isDefaultFx(base.fx)) {
       const M = temp(4, ctx);
-      drawLayerContent(M, project, base, frame, opts.override, mf);
+      drawWithFx(M, project, { ...base, fx: undefined }, frame, opts.override, mf, 5);
       mask = M.canvas;
     }
     const G = temp(2, ctx);

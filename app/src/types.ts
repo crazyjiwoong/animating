@@ -60,7 +60,7 @@ export interface LayerFx {
   tintColor: string;
 }
 
-export type MotionKind = 'none' | 'shake' | 'bob' | 'sway' | 'spin' | 'swing' | 'pulse';
+export type MotionKind = 'none' | 'jitter' | 'boil' | 'shake' | 'bob' | 'sway' | 'spin' | 'swing' | 'pulse';
 
 export interface LayerMotion {
   kind: MotionKind;
