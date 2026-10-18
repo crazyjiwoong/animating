@@ -14,6 +14,7 @@ const LIST: [string, string][] = [
   ['프레임 복제', 'Ctrl + D'],
   ['새 프레임', 'Ctrl + Shift + F'],
   ['새 레이어', 'Ctrl + Shift + N'],
+  ['클리핑 켜기/끄기', 'Ctrl + Alt + G'],
   ['미세 이동 (이동 도구)', '방향키 · Shift = 10px'],
   ['범위 지정 (이동 도구)', '꾹 누른 채로 끌기'],
   ['범위 확정 / 취소 / 지우기', 'Enter / Esc / Delete'],

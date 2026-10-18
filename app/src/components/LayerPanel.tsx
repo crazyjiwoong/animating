@@ -1,7 +1,8 @@
 import { memo, useEffect, useRef, useState } from 'react';
-import { Sparkles, Eye, EyeOff, Lock, LockOpen, Plus, Copy, Trash2, ArrowUp, ArrowDown, Merge, ImagePlus, Image as ImageIcon, Brush, Grid2x2Check } from 'lucide-react';
-import type { BlendMode, Layer, MotionKind } from '../types';
+import { Sparkles, Palette, CornerLeftDown, RotateCcw, ChevronDown, ChevronRight, Eye, EyeOff, Lock, LockOpen, Plus, Copy, Trash2, ArrowUp, ArrowDown, Merge, ImagePlus, Image as ImageIcon, Brush, Grid2x2Check } from 'lucide-react';
+import type { BlendMode, Layer, LayerFx, MotionKind } from '../types';
 import { DEFAULT_MOTION, MOTIONS } from '../lib/motion';
+import { DEFAULT_FX, FX_PRESETS, isDefaultFx } from '../lib/fx';
 import { useEditor, currentLayer } from '../store/editor';
 import { drawCel } from '../lib/render';
 import { ctx2d } from '../lib/canvas';
@@ -72,6 +73,11 @@ function LayerRow({ layer, index, dropMark, onDragStart }: { layer: Layer; index
       onDoubleClick={() => setEditing(true)}
     >
       <span className="tag" style={{ background: layer.color }} />
+      {layer.clip && index > 0 && (
+        <span className="clip-mark" title="아래 레이어에 클리핑됨">
+          <CornerLeftDown size={13} />
+        </span>
+      )}
       <button className="icon-btn sm" onClick={() => update(layer.id, { visible: !layer.visible })} title={layer.visible ? '숨기기' : '보이기'}>
         {layer.visible ? <Eye size={14} /> : <EyeOff size={14} />}
       </button>
@@ -98,6 +104,11 @@ function LayerRow({ layer, index, dropMark, onDragStart }: { layer: Layer; index
           {layer.kind === 'image' ? <ImageIcon size={11} /> : <Brush size={11} />}
           {Math.round(layer.opacity * 100)}% · {BLEND_MODES.find((b) => b.value === layer.blend)?.label}
           {layer.alphaLock && <Grid2x2Check size={11} />}
+          {!isDefaultFx(layer.fx) && (
+            <span className="fx-badge" title="색 효과">
+              <Palette size={10} /> 효과
+            </span>
+          )}
           {layer.motion && layer.motion.kind !== 'none' && (
             <span className="motion-badge" title={MOTIONS.find((m) => m.kind === layer.motion!.kind)?.label}>
               <Sparkles size={10} /> {MOTIONS.find((m) => m.kind === layer.motion!.kind)?.label}
@@ -198,6 +209,14 @@ export function LayerPanel() {
                 </option>
               ))}
             </select>
+            <button
+              className={'icon-btn' + (layer.clip ? ' active' : '')}
+              onClick={() => update(layer.id, { clip: !layer.clip })}
+              disabled={layers[0]?.id === layer.id}
+              title="클리핑 (아래 레이어에 그린 곳에만 보이기) · Ctrl+Alt+G"
+            >
+              <CornerLeftDown size={15} />
+            </button>
             {layer.kind === 'raster' && (
               <button
                 className={'icon-btn' + (layer.alphaLock ? ' active' : '')}
@@ -258,6 +277,7 @@ export function LayerPanel() {
               <div className="muted" style={{ fontSize: 11 }}>▶ 재생하거나 내보낼 때 움직여요 (그릴 때는 멈춰 있어요)</div>
             </div>
           )}
+          <FxBox layer={layer} />
         </div>
       )}
       <div className="layer-list" ref={listRef}>
@@ -292,6 +312,84 @@ export function LayerPanel() {
             <Trash2 size={15} />
           </button>
         </div>
+      )}
+    </div>
+  );
+}
+
+type NumKey = Exclude<keyof LayerFx, 'glowColor' | 'tintColor'>;
+const FX_SLIDERS: { key: NumKey; label: string; min: number; max: number; unit: string }[] = [
+  { key: 'brightness', label: '밝기', min: 0, max: 200, unit: '%' },
+  { key: 'contrast', label: '대비', min: 0, max: 200, unit: '%' },
+  { key: 'saturate', label: '채도', min: 0, max: 300, unit: '%' },
+  { key: 'hue', label: '색상 돌리기', min: -180, max: 180, unit: '°' },
+  { key: 'grayscale', label: '흑백', min: 0, max: 100, unit: '%' },
+  { key: 'sepia', label: '세피아', min: 0, max: 100, unit: '%' },
+  { key: 'invert', label: '반전', min: 0, max: 100, unit: '%' },
+  { key: 'blur', label: '흐림', min: 0, max: 20, unit: 'px' },
+];
+
+function FxSlider({ label, value, min, max, unit, onChange }: { label: string; value: number; min: number; max: number; unit: string; onChange: (v: number) => void }) {
+  return (
+    <div className="row" style={{ gap: 8 }}>
+      <span className="label" style={{ width: 58 }}>{label}</span>
+      <input type="range" className="grow" min={min} max={max} value={value} style={{ ['--p' as string]: `${((value - min) / (max - min)) * 100}%` }} onChange={(e) => onChange(Number(e.target.value))} />
+      <span className="s-value" style={{ fontSize: 11.5, width: 40, textAlign: 'right' }}>
+        {value}
+        {unit}
+      </span>
+    </div>
+  );
+}
+
+/** 색 효과 — 프리셋 한 번 누르기 + 세부 조절 */
+function FxBox({ layer }: { layer: Layer }) {
+  const update = useEditor((s) => s.updateLayer);
+  const [open, setOpen] = useState(false);
+  const [more, setMore] = useState(false);
+  const fx: LayerFx = { ...DEFAULT_FX, ...layer.fx };
+  const on = !isDefaultFx(layer.fx);
+  const set = (patch: Partial<LayerFx>, key?: string) => update(layer.id, { fx: { ...fx, ...patch } }, key);
+  const active = FX_PRESETS.find((p) => (Object.keys(DEFAULT_FX) as (keyof LayerFx)[]).every((k) => fx[k] === ({ ...DEFAULT_FX, ...p.fx } as LayerFx)[k]));
+  return (
+    <div className={'fx-box' + (open ? ' open' : '')}>
+      <button className="fx-head" onClick={() => setOpen(!open)}>
+        {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        <Palette size={14} /> 색 효과
+        <span className="grow" />
+        {on && <span className="fx-badge">{active?.name ?? '사용 중'}</span>}
+      </button>
+      {open && (
+        <>
+          <div className="fx-presets">
+            {FX_PRESETS.map((p) => (
+              <button key={p.name} className={'fx-preset' + (active === p ? ' sel' : '')} onClick={() => update(layer.id, { fx: { ...DEFAULT_FX, ...p.fx } })} title={p.name}>
+                <span className="sw" style={{ background: p.swatch }} />
+                {p.name}
+              </button>
+            ))}
+          </div>
+          <div className="row" style={{ gap: 8 }}>
+            <span className="label" style={{ width: 58 }}>색 입히기</span>
+            <input type="range" className="grow" min={0} max={100} value={fx.tint} style={{ ['--p' as string]: `${fx.tint}%` }} onChange={(e) => set({ tint: Number(e.target.value) }, 'fx-tint')} />
+            <input type="color" className="fx-color" value={fx.tintColor} onChange={(e) => set({ tintColor: e.target.value, tint: fx.tint || 50 }, 'fx-tintc')} title="입힐 색" />
+          </div>
+          <div className="row" style={{ gap: 8 }}>
+            <span className="label" style={{ width: 58 }}>빛나기</span>
+            <input type="range" className="grow" min={0} max={40} value={fx.glow} style={{ ['--p' as string]: `${(fx.glow / 40) * 100}%` }} onChange={(e) => set({ glow: Number(e.target.value) }, 'fx-glow')} />
+            <input type="color" className="fx-color" value={fx.glowColor} onChange={(e) => set({ glowColor: e.target.value, glow: fx.glow || 12 }, 'fx-glowc')} title="빛 색" />
+          </div>
+          <FxSlider label="그림자" value={fx.shadow} min={0} max={40} unit="" onChange={(v) => set({ shadow: v }, 'fx-shadow')} />
+          <button className="fx-more" onClick={() => setMore(!more)}>
+            {more ? <ChevronDown size={13} /> : <ChevronRight size={13} />} 자세히 (밝기·대비·채도…)
+          </button>
+          {more && FX_SLIDERS.map((d) => <FxSlider key={d.key} label={d.label} value={fx[d.key]} min={d.min} max={d.max} unit={d.unit} onChange={(v) => set({ [d.key]: v }, 'fx-' + d.key)} />)}
+          {on && (
+            <button className="btn sm ghost" onClick={() => update(layer.id, { fx: undefined })}>
+              <RotateCcw size={13} /> 효과 없애기
+            </button>
+          )}
+        </>
       )}
     </div>
   );

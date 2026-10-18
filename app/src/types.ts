@@ -31,6 +31,33 @@ export interface Layer {
   color: string;
   /** 기본 애니메이션 (재생·내보내기 때 자동으로 움직임) */
   motion?: LayerMotion;
+  /** 클리핑: 바로 아래(클리핑이 아닌) 레이어에 그림이 있는 곳에만 보임 */
+  clip?: boolean;
+  /** 색 효과 */
+  fx?: LayerFx;
+}
+
+export interface LayerFx {
+  /** 100 = 그대로 */
+  brightness: number;
+  contrast: number;
+  saturate: number;
+  /** 색조 회전 (도) */
+  hue: number;
+  /** 흐림 (px) */
+  blur: number;
+  /** 0~100 % */
+  grayscale: number;
+  sepia: number;
+  invert: number;
+  /** 빛나기 크기 (px), 0 = 없음 */
+  glow: number;
+  glowColor: string;
+  /** 그림자 크기 (px), 0 = 없음 */
+  shadow: number;
+  /** 색 입히기 0~100 % */
+  tint: number;
+  tintColor: string;
 }
 
 export type MotionKind = 'none' | 'shake' | 'bob' | 'sway' | 'spin' | 'swing' | 'pulse';

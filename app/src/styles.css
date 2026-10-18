@@ -2010,3 +2010,95 @@ input[type='range']::-moz-range-thumb {
   background: rgba(255, 179, 64, 0.45);
   pointer-events: none;
 }
+
+/* ---- 클리핑 · 색 효과 ---- */
+.clip-mark {
+  display: inline-flex;
+  color: #8fd3ff;
+  margin: 0 -2px 0 2px;
+}
+.fx-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: rgba(186, 120, 255, 0.16);
+  color: #d4b0ff;
+  font-size: 10px;
+  font-weight: 600;
+}
+.fx-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-radius: 10px;
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.08));
+  padding: 4px 8px;
+}
+.fx-box.open {
+  padding-bottom: 8px;
+  background: rgba(186, 120, 255, 0.05);
+  border-color: rgba(186, 120, 255, 0.28);
+}
+.fx-head,
+.fx-more {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 0;
+  cursor: pointer;
+}
+.fx-more {
+  font-weight: 500;
+  opacity: 0.7;
+  font-size: 11.5px;
+}
+.fx-presets {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+}
+.fx-preset {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 2px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  font: inherit;
+  font-size: 10.5px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.fx-preset:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.fx-preset.sel {
+  border-color: #b77bff;
+  background: rgba(186, 120, 255, 0.14);
+}
+.fx-preset .sw {
+  width: 28px;
+  height: 18px;
+  border-radius: 5px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15);
+}
+.fx-color {
+  width: 26px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}

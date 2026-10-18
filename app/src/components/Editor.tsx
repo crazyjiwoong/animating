@@ -227,7 +227,10 @@ export function Editor({ onExit }: { onExit: () => void }) {
         else if (k === 'f' && e.shiftKey) s.addFrame();
         else if (k === 'n' && e.shiftKey) s.addLayer('raster');
         else if (k === '0') useView.getState().fit();
-        else return;
+        else if (e.code === 'KeyG' && e.altKey) {
+          const l = s.project?.layers.find((x) => x.id === s.layerId);
+          if (l && s.project!.layers[0].id !== l.id) s.updateLayer(l.id, { clip: !l.clip });
+        } else return;
         e.preventDefault();
         return;
       }

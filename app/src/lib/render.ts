@@ -1,6 +1,7 @@
 import type { Cel, Frame, Layer, Project, Transform } from '../types';
 import { createCanvas, ctx2d } from './canvas';
 import { applyCamera, applyMotion, cameraActive } from './motion';
+import { filterString, isDefaultFx } from './fx';
 
 export const DEFAULT_T: Transform = { x: 0, y: 0, scale: 1, rotation: 0, flipX: false, flipY: false, opacity: 1 };
 
@@ -51,7 +52,8 @@ export function drawCel(ctx: CanvasRenderingContext2D, project: Project, cel: Ce
   }
 }
 
-export function drawLayer(
+/** 레이어 내용만 그린다 (투명도·합성 모드 없이). 그릴 게 없으면 false */
+function drawLayerContent(
   ctx: CanvasRenderingContext2D,
   project: Project,
   layer: Layer,
@@ -61,14 +63,77 @@ export function drawLayer(
 ) {
   const cel = frame.cels[layer.id];
   const ov = override && override.layerId === layer.id ? override : null;
-  if (!cel && !ov) return;
+  if (!cel && !ov) return false;
   ctx.save();
   if (motionFrame !== undefined && cel) applyMotion(ctx, project, layer, cel, motionFrame);
-  ctx.globalAlpha = layer.opacity;
-  ctx.globalCompositeOperation = layer.blend;
   if (ov) ov.draw(ctx);
   else if (cel) drawCel(ctx, project, cel);
   ctx.restore();
+  return true;
+}
+
+export function drawLayer(
+  ctx: CanvasRenderingContext2D,
+  project: Project,
+  layer: Layer,
+  frame: Frame,
+  override?: LayerOverride | null,
+  motionFrame?: number,
+) {
+  ctx.save();
+  ctx.globalAlpha = layer.opacity;
+  ctx.globalCompositeOperation = layer.blend;
+  drawLayerContent(ctx, project, layer, frame, override, motionFrame);
+  ctx.restore();
+}
+
+/* ---------------------------------------------------------------- 효과 · 클리핑용 임시 캔버스 */
+
+const pool: HTMLCanvasElement[] = [];
+/** 출력 캔버스와 같은 크기·같은 좌표계의 임시 캔버스 (slot 마다 재사용) */
+function temp(slot: number, like: CanvasRenderingContext2D) {
+  const w = like.canvas.width,
+    h = like.canvas.height;
+  let c = pool[slot];
+  if (!c) c = pool[slot] = createCanvas(w, h);
+  if (c.width !== w || c.height !== h) {
+    c.width = w;
+    c.height = h;
+  }
+  const t = ctx2d(c);
+  t.setTransform(1, 0, 0, 1, 0, 0);
+  t.globalAlpha = 1;
+  t.globalCompositeOperation = 'source-over';
+  t.filter = 'none';
+  t.clearRect(0, 0, w, h);
+  t.setTransform(like.getTransform());
+  t.imageSmoothingQuality = 'high';
+  return t;
+}
+
+/** 효과까지 적용한 레이어 내용을 out 에 그린다 (out 은 비어 있어야 함) */
+function drawWithFx(out: CanvasRenderingContext2D, project: Project, layer: Layer, frame: Frame, override: LayerOverride | null | undefined, motionFrame: number | undefined, slot: number) {
+  const fx = layer.fx;
+  if (isDefaultFx(fx)) return drawLayerContent(out, project, layer, frame, override, motionFrame);
+  const raw = temp(slot, out);
+  if (!drawLayerContent(raw, project, layer, frame, override, motionFrame)) return false;
+  if (fx!.tint) {
+    // 색 입히기: 그림이 있는 곳에만 색을 덮는다
+    raw.save();
+    raw.setTransform(1, 0, 0, 1, 0, 0);
+    raw.globalCompositeOperation = 'source-atop';
+    raw.globalAlpha = fx!.tint / 100;
+    raw.fillStyle = fx!.tintColor;
+    raw.fillRect(0, 0, raw.canvas.width, raw.canvas.height);
+    raw.restore();
+  }
+  const m = out.getTransform();
+  out.save();
+  out.setTransform(1, 0, 0, 1, 0, 0);
+  out.filter = filterString(fx!, Math.hypot(m.a, m.b) || 1);
+  out.drawImage(raw.canvas, 0, 0);
+  out.restore();
+  return true;
 }
 
 /** ctx 는 프로젝트 좌표계(0..width, 0..height)로 맞춰져 있어야 한다 */
@@ -89,11 +154,62 @@ export function renderFrame(ctx: CanvasRenderingContext2D, project: Project, fra
     ctx.save();
     applyCamera(ctx, project, frameIndex);
   }
-  for (const layer of project.layers) {
+  const mf = opts.motion ? frameIndex : undefined;
+  const layers = project.layers;
+  for (let i = 0; i < layers.length; i++) {
+    const layer = layers[i];
     if (opts.onlyLayerId) {
-      if (layer.id !== opts.onlyLayerId) continue;
-    } else if (!layer.visible) continue;
-    drawLayer(ctx, project, layer, frame, opts.override, opts.motion ? frameIndex : undefined);
+      if (layer.id === opts.onlyLayerId) drawLayer(ctx, project, layer, frame, opts.override, mf);
+      continue;
+    }
+    // 이 레이어 위에 붙은 클리핑 레이어들
+    let j = i + 1;
+    while (j < layers.length && layers[j].clip) j++;
+    const clips = layers.slice(i + 1, j).filter((l) => l.visible);
+    const base = layer.clip && i > 0 ? null : layer; // 맨 아래 클리핑은 일반 레이어처럼
+    if (!base) {
+      if (layer.visible) drawLayer(ctx, project, layer, frame, opts.override, mf);
+      continue;
+    }
+    i = j - 1;
+    if (!base.visible) continue;
+    if (!clips.length && isDefaultFx(base.fx)) {
+      drawLayer(ctx, project, base, frame, opts.override, mf);
+      continue;
+    }
+    // 바탕 레이어(효과 포함) → 그룹 캔버스에 클리핑 레이어를 바탕 모양대로 얹기
+    const B = temp(1, ctx);
+    if (!drawWithFx(B, project, base, frame, opts.override, mf, 0)) continue;
+    // 클리핑은 효과(빛·그림자·흐림) 전 원래 모양을 따른다
+    let mask = B.canvas;
+    if (clips.length && !isDefaultFx(base.fx)) {
+      const M = temp(4, ctx);
+      drawLayerContent(M, project, base, frame, opts.override, mf);
+      mask = M.canvas;
+    }
+    const G = temp(2, ctx);
+    G.save();
+    G.setTransform(1, 0, 0, 1, 0, 0);
+    G.drawImage(B.canvas, 0, 0);
+    for (const c of clips) {
+      const T = temp(3, ctx);
+      if (!drawWithFx(T, project, c, frame, opts.override, mf, 0)) continue;
+      T.save();
+      T.setTransform(1, 0, 0, 1, 0, 0);
+      T.globalCompositeOperation = 'destination-in';
+      T.drawImage(mask, 0, 0);
+      T.restore();
+      G.globalAlpha = c.opacity;
+      G.globalCompositeOperation = c.blend;
+      G.drawImage(T.canvas, 0, 0);
+    }
+    G.restore();
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = base.opacity;
+    ctx.globalCompositeOperation = base.blend;
+    ctx.drawImage(G.canvas, 0, 0);
+    ctx.restore();
   }
   if (cam) ctx.restore();
 }

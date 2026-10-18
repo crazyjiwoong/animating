@@ -3,7 +3,7 @@ import type { Asset, AudioTrack, Camera, CameraKey, Cel, Frame, Layer, LayerKind
 import { cameraAt, defaultCamera } from '../lib/motion';
 import { uid, clamp } from '../lib/id';
 import { createCanvas, ctx2d } from '../lib/canvas';
-import { DEFAULT_T, drawCel } from '../lib/render';
+import { DEFAULT_T, drawCel, renderFrameCanvas } from '../lib/render';
 
 export const LAYER_COLORS = ['#8b7bff', '#ff6fb5', '#45b8ff', '#5ee38c', '#ffb340', '#ff5d73', '#3fd6c6', '#c06bff'];
 
@@ -453,9 +453,18 @@ export const useEditor = create<EditorState>((set, get) => ({
     const upper = p.layers[idx];
     const lower = p.layers[idx - 1];
     const merged = new Map<string, Cel>();
+    const mini: Project = {
+      ...p,
+      camera: undefined,
+      layers: [
+        { ...lower, visible: true, opacity: 1, blend: 'source-over', clip: false },
+        // 아래 레이어도 클리핑 중이면 위 레이어는 같은 바탕에 붙어 있던 것 — 아래 모양에 다시 자르지 않는다
+        { ...upper, clip: !!upper.clip && !lower.clip },
+      ],
+    };
     s.commit('아래 레이어와 합치기', (p) => ({
-      layers: p.layers.filter((l) => l.id !== upper.id).map((l) => (l.id === lower.id ? { ...l, kind: 'raster' as const } : l)),
-      frames: p.frames.map((f) => {
+      layers: p.layers.filter((l) => l.id !== upper.id).map((l) => (l.id === lower.id ? { ...l, kind: 'raster' as const, fx: undefined } : l)),
+      frames: p.frames.map((f, fi) => {
         const a = f.cels[lower.id];
         const b = f.cels[upper.id];
         const cels = { ...f.cels };
@@ -466,14 +475,8 @@ export const useEditor = create<EditorState>((set, get) => ({
           cels[lower.id] = merged.get(pair)!;
           return { ...f, cels };
         }
-        const c = createCanvas(p.width, p.height);
-        const ctx = ctx2d(c);
-        if (a) drawCel(ctx, p, a);
-        if (b && upper.visible) {
-          ctx.globalAlpha = upper.opacity;
-          ctx.globalCompositeOperation = upper.blend;
-          drawCel(ctx, p, b);
-        }
+        // 두 레이어만 있는 작은 작품으로 그려서 클리핑·색 효과까지 그대로 굳힌다
+        const c = renderFrameCanvas(mini, fi, { background: false });
         const cel: Cel = { kind: 'raster', key: uid('c_'), canvas: c };
         if (pair) merged.set(pair, cel);
         cels[lower.id] = cel;
