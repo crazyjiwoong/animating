@@ -20,8 +20,8 @@ export interface Floating {
   from: HTMLCanvasElement;
   hole: HTMLCanvasElement;
   piece: HTMLCanvasElement;
-  /** 처음 고른 모양의 테두리 (캔버스 좌표) */
-  outline: Pt[];
+  /** 처음 고른 모양의 테두리들 (캔버스 좌표) */
+  outlines: Pt[][];
   /** piece 의 원래 중심 */
   c0: Pt;
   t: Transform;
@@ -70,19 +70,24 @@ export function shapeOutline(kind: 'lasso' | 'rect' | 'ellipse', pts: Pt[]): Pt[
   });
 }
 
-/** 범위를 만든다. 고른 곳에 그림이 없으면 null */
-export function makeSelection(layerId: string, frameIndex: number, outline: Pt[]): Floating | null {
+/** 범위를 만든다 (mask 를 주면 그 영역, 아니면 테두리 모양). 고른 곳에 그림이 없으면 null */
+export function makeSelection(layerId: string, frameIndex: number, outlines: Pt[][], areaMask?: HTMLCanvasElement): Floating | null {
   const s = useEditor.getState();
   const p = s.project!;
   const cel = p.frames[frameIndex]?.cels[layerId];
-  if (!cel || cel.kind !== 'raster' || outline.length < 3) return null;
-  const mask = createCanvas(p.width, p.height);
-  const m = ctx2d(mask);
-  m.beginPath();
-  outline.forEach((q, i) => (i ? m.lineTo(q.x, q.y) : m.moveTo(q.x, q.y)));
-  m.closePath();
-  m.fillStyle = '#000';
-  m.fill();
+  if (!cel || cel.kind !== 'raster') return null;
+  let mask = areaMask;
+  if (!mask) {
+    const outline = outlines[0];
+    if (!outline || outline.length < 3) return null;
+    mask = createCanvas(p.width, p.height);
+    const m = ctx2d(mask);
+    m.beginPath();
+    outline.forEach((q, i) => (i ? m.lineTo(q.x, q.y) : m.moveTo(q.x, q.y)));
+    m.closePath();
+    m.fillStyle = '#000';
+    m.fill();
+  }
   // 고른 부분만 남긴 그림
   const picked = cloneCanvas(cel.canvas);
   const pc = ctx2d(picked);
@@ -98,7 +103,7 @@ export function makeSelection(layerId: string, frameIndex: number, outline: Pt[]
   hc.globalCompositeOperation = 'destination-out';
   hc.drawImage(mask, 0, 0);
   const c0 = { x: b.x + b.w / 2, y: b.y + b.h / 2 };
-  const f: Floating = { layerId, frameIndex, from: cel.canvas, hole, piece, outline, c0, t: { ...DEFAULT_T, x: c0.x, y: c0.y } };
+  const f: Floating = { layerId, frameIndex, from: cel.canvas, hole, piece, outlines, c0, t: { ...DEFAULT_T, x: c0.x, y: c0.y } };
   show(f);
   return f;
 }
@@ -147,18 +152,20 @@ export function nudgeSelection(dx: number, dy: number) {
   return true;
 }
 
-/** 테두리를 현재 변형에 맞게 옮긴 점들 */
-export function outlineNow(f: Floating): Pt[] {
+/** 테두리들을 현재 변형에 맞게 옮긴 점들 */
+export function outlineNow(f: Floating): Pt[][] {
   const r = (f.t.rotation * Math.PI) / 180;
   const cos = Math.cos(r),
     sin = Math.sin(r);
   const sx = f.t.scale * (f.t.flipX ? -1 : 1),
     sy = f.t.scale * (f.t.flipY ? -1 : 1);
-  return f.outline.map((q) => {
-    const x = (q.x - f.c0.x) * sx,
-      y = (q.y - f.c0.y) * sy;
-    return { x: f.t.x + x * cos - y * sin, y: f.t.y + x * sin + y * cos };
-  });
+  return f.outlines.map((o) =>
+    o.map((q) => {
+      const x = (q.x - f.c0.x) * sx,
+        y = (q.y - f.c0.y) * sy;
+      return { x: f.t.x + x * cos - y * sin, y: f.t.y + x * sin + y * cos };
+    }),
+  );
 }
 
 // 다른 프레임·레이어·도구로 바꾸면 자동으로 내려놓는다

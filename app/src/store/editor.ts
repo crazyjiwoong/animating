@@ -77,6 +77,10 @@ export interface EditorState {
   cameraView: boolean;
   /** 범위를 지정해 떠 있는 그림이 있는지 (화면 표시용) */
   selectionActive: boolean;
+  /** 선택 영역(클튜 올가미처럼 그림은 그대로, 영역만)이 있는지 */
+  areaActive: boolean;
+  /** 올가미 도구: 새로 / 추가 / 빼기 */
+  selMode: 'new' | 'add' | 'sub';
   grid: { enabled: boolean; size: number; safe: boolean };
   flipView: boolean;
   playSpeed: number;
@@ -242,6 +246,8 @@ export const useEditor = create<EditorState>((set, get) => ({
   selShape: 'lasso',
   cameraView: true,
   selectionActive: false,
+  areaActive: false,
+  selMode: 'new',
   grid: { enabled: false, size: 64, safe: false },
   flipView: false,
   playSpeed: 1,

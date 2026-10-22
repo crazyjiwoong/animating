@@ -105,8 +105,23 @@ function SelectProps() {
   const active = useEditor((s) => s.selectionActive);
   const set = useEditor((s) => s.set);
   const direct = useEditor((s) => s.tool === 'select');
+  const selMode = useEditor((s) => s.selMode);
+  const areaOn = useEditor((s) => s.areaActive);
   return (
     <div className="sel-box">
+      {direct && (
+        <div className="seg" style={{ display: 'flex' }}>
+          {([
+            ['new', '새로'],
+            ['add', '추가 (Shift)'],
+            ['sub', '빼기 (Alt)'],
+          ] as const).map(([k, label]) => (
+            <button key={k} className={selMode === k ? 'on' : ''} style={{ flex: 1 }} onClick={() => set({ selMode: k })}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <span className="label">{direct ? '끌어서 범위 지정' : '꾹 누르고 끌어서 범위 지정'}</span>
       </div>
@@ -136,7 +151,9 @@ function SelectProps() {
       ) : (
         <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.5 }}>
           {direct
-            ? '그림 둘레를 끌어서 감싸면 그 부분만 골라져요. 고른 뒤 안쪽을 끌면 이동, 모서리는 크기, 위 동그라미는 회전이에요.'
+            ? areaOn
+              ? '선택 영역 안에만 칠해지고 지워져요. 이동 도구로 끌면 영역 안 그림만 움직여요. 화면 위 메뉴에서 지우기·채우기·복사·변형. 빈 곳을 짧게 누르면 해제 (Ctrl+D).'
+              : '끌어서 감싸면 선택 영역이 생겨요 (그림은 그대로). 그 안에만 칠하거나, 지우고, 옮길 수 있어요. 전체 선택 Ctrl+A.'
             : '잠깐 꾹 누른 채로 끌면 일부분만 골라 옮기거나 돌릴 수 있어요. 바로 끌면 레이어 전체가 움직여요.'}
         </div>
       )}

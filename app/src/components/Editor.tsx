@@ -7,6 +7,7 @@ import { playAudioFrom, playFrameSlice, stopAudio } from '../lib/audio';
 import { importFiles, importImageBlob } from '../lib/importers';
 import { nudge } from '../lib/nudge';
 import { sel, cancelSelection, commitSelection, deleteSelection, nudgeSelection } from '../lib/selection';
+import { area, clearArea, eraseArea, invertArea, selectAll, transformArea } from '../lib/selmask';
 import { TopBar } from './TopBar';
 import { Toolbar } from './Toolbar';
 import { Viewport } from './Viewport';
@@ -213,6 +214,34 @@ export function Editor({ onExit }: { onExit: () => void }) {
         if (e.key.startsWith('Arrow')) {
           const step = e.shiftKey ? 10 : 1;
           nudgeSelection(e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0, e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0);
+          e.preventDefault();
+          return;
+        }
+      }
+      // 선택 영역 (클튜 단축키)
+      if (mod && k === 'a') {
+        selectAll();
+        e.preventDefault();
+        return;
+      }
+      if (area.cur) {
+        const act =
+          mod && k === 'd'
+            ? clearArea
+            : mod && e.shiftKey && k === 'i'
+              ? invertArea
+              : mod && k === 't'
+                ? () => {
+                    if (s.tool !== 'move' && s.tool !== 'select') s.set({ tool: 'select' });
+                    transformArea();
+                  }
+                : !mod && (e.key === 'Delete' || e.key === 'Backspace')
+                  ? eraseArea
+                  : !mod && e.key === 'Escape'
+                    ? clearArea
+                    : null;
+        if (act) {
+          act();
           e.preventDefault();
           return;
         }

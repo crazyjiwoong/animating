@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ZoomIn, ZoomOut, Maximize, Lock, EyeOff, Grid3x3, Scan, FlipHorizontal2, RotateCcw, RotateCw } from 'lucide-react';
+import { ZoomIn, ZoomOut, Maximize, Lock, EyeOff, Grid3x3, Scan, FlipHorizontal2, RotateCcw, RotateCw, X, FlipVertical2, Eraser, PaintBucket, Copy, Scissors, Move as MoveIcon } from 'lucide-react';
 import type { Frame, Layer, Project, Transform } from '../types';
 import { useEditor, currentLayer, type ShapeKind, type SelShape } from '../store/editor';
 import { cameraAt } from '../lib/motion';
@@ -9,6 +9,7 @@ import { live, invalidate, onInvalidate } from '../lib/live';
 import { alphaBounds, checkerPattern, cloneCanvas, createCanvas, ctx2d, floodFillMask, rgbToHex, type Rect } from '../lib/canvas';
 import { DEFAULT_T, drawSourceWithTransform, renderFrameCanvas, renderTinted } from '../lib/render';
 import { drawRefVideo } from '../lib/refvideo';
+import { area, areaOutlines, areaToNewLayer, clearArea, eraseArea, fillArea, invertArea, maskToArea, setArea, transformArea, type AreaOp } from '../lib/selmask';
 import { importFiles } from '../lib/importers';
 
 /* ---------------------------------------------------------------- 캐시 */
@@ -72,6 +73,12 @@ const toScreen = toScreenPt;
 function cameraBox(p: Project, i: number): Box {
   const c = cameraAt(p, i);
   return { w: p.width, h: p.height, t: { ...DEFAULT_T, x: c.x, y: c.y, scale: 1 / c.zoom, rotation: c.rotation } };
+}
+
+let shapeBufC: HTMLCanvasElement | null = null;
+function shapeBuf(w: number, h: number) {
+  if (!shapeBufC || shapeBufC.width !== w || shapeBufC.height !== h) shapeBufC = createCanvas(w, h);
+  return shapeBufC;
 }
 
 function drawShape(ctx: CanvasRenderingContext2D, kind: ShapeKind, a: { x: number; y: number }, b: { x: number; y: number }, fill: boolean, color: string, size: number) {
@@ -191,8 +198,8 @@ type Drag =
   | { type: 'pinch'; d0: number; z0: number; a0: number; r0: number; cx: number; cy: number; mx: number; my: number }
   /** 이동 도구: 꾹 누르는지 보는 중 (움직이면 이동, 가만히 있으면 범위 지정) */
   | { type: 'pending'; downPt: { x: number; y: number }; downC: Pt; timer: number }
-  /** 이동 도구: 꾹 누른 뒤 범위를 그리는 중 */
-  | { type: 'select'; layerId: string; frameIndex: number; shape: SelShape; pts: Pt[] };
+  /** 이동 도구: 꾹 누른 뒤 범위를 그리는 중 / 올가미 도구: 선택 영역을 그리는 중 (op 있음) */
+  | { type: 'select'; layerId: string; frameIndex: number; shape: SelShape; pts: Pt[]; op?: AreaOp };
 
 const LONG_PRESS_MS = 380;
 
@@ -213,6 +220,7 @@ export function Viewport() {
   const stageRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameBuf = useRef<HTMLCanvasElement | null>(null);
+  const launcherRef = useRef<HTMLDivElement>(null);
   const drag = useRef<Drag | null>(null);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const hover = useRef<{ x: number; y: number } | null>(null);
@@ -414,6 +422,26 @@ export function Viewport() {
       ctx.setLineDash([]);
       ctx.lineDashOffset = 0;
     };
+    // 선택 영역 (어느 도구에서든 보인다)
+    if (area.cur && !s.playing) {
+      areaOutlines().forEach((o) => ants(o, true));
+      // 메뉴는 선택 영역 바로 아래 (화면 밖이면 안쪽으로)
+      const el = launcherRef.current;
+      if (el) {
+        const b = area.cur.bounds;
+        const pts = [toScreen(b.x, b.y), toScreen(b.x + b.w, b.y), toScreen(b.x, b.y + b.h), toScreen(b.x + b.w, b.y + b.h)];
+        const cx = pts.reduce((a, q) => a + q[0], 0) / 4;
+        const bottom = Math.max(...pts.map((q) => q[1]));
+        const top = Math.min(...pts.map((q) => q[1]));
+        const w = el.offsetWidth,
+          h = el.offsetHeight;
+        let y = bottom + 12;
+        if (y + h > v.stageH - 56) y = Math.max(8, top - h - 12);
+        if (y < 8 || y + h > v.stageH - 8) y = 8;
+        el.style.left = `${Math.min(Math.max(8, cx - w / 2), Math.max(8, v.stageW - w - 8))}px`;
+        el.style.top = `${y}px`;
+      }
+    }
     if ((s.tool === 'move' || s.tool === 'select') && !s.playing && !keys.current.space) {
       if (d?.type === 'select') {
         ants(shapeOutline(d.shape, d.pts), d.shape !== 'lasso' || d.pts.length > 2);
@@ -425,7 +453,7 @@ export function Viewport() {
         ctx.fill();
       }
       const f = sel.floating;
-      if (f) ants(outlineNow(f), true);
+      if (f) outlineNow(f).forEach((o) => ants(o, true));
       let box: Box | null = null;
       if (f) box = { w: f.piece.width, h: f.piece.height, t: f.t };
       else if (d?.type === 'transform') box = { w: d.w, h: d.h, t: d.t };
@@ -494,7 +522,7 @@ export function Viewport() {
   }, []);
 
   // 범위가 떠 있는 동안 개미 줄이 움직이게
-  const selectionActive = useEditor((s) => s.selectionActive);
+  const selectionActive = useEditor((s) => s.selectionActive || s.areaActive);
   useEffect(() => {
     if (!selectionActive) return;
     const id = setInterval(schedule, 90);
@@ -652,6 +680,14 @@ export function Viewport() {
       return;
     }
 
+    if (tool === 'select' && !sel.floating) {
+      // 올가미 도구: 선택 영역 그리기 (Shift = 추가, Alt = 빼기)
+      const op: AreaOp = e.shiftKey ? 'add' : e.altKey ? 'sub' : s.selMode;
+      drag.current = { type: 'select', layerId: s.layerId, frameIndex: s.frameIndex, shape: s.selShape, pts: [c], op };
+      invalidate();
+      return;
+    }
+
     const lyr = currentLayer(s);
     if (!lyr) return;
     if (lyr.locked) {
@@ -733,7 +769,7 @@ export function Viewport() {
       const out = base ? cloneCanvas(base) : createCanvas(p.width, p.height);
       const octx = ctx2d(out);
       if (lyr.alphaLock) octx.globalCompositeOperation = 'source-atop';
-      octx.drawImage(mask, 0, 0);
+      octx.drawImage(maskToArea(mask), 0, 0);
       s.setCel(s.frameIndex, lyr.id, { kind: 'raster', canvas: out }, '채우기');
       return;
     }
@@ -765,9 +801,30 @@ export function Viewport() {
         commitSelection();
       }
       if (tool === 'select') {
-        // 올가미 도구: 누르자마자 범위 그리기
-        drag.current = { type: 'pending', downPt: pt, downC: c, timer: 0 };
-        startSelect();
+        // 떠 있던 그림을 내려놓고 새 선택 영역 그리기
+        const op: AreaOp = e.shiftKey ? 'add' : e.altKey ? 'sub' : s.selMode;
+        drag.current = { type: 'select', layerId: s.layerId, frameIndex: s.frameIndex, shape: s.selShape, pts: [c], op };
+        invalidate();
+        return;
+      }
+      // 선택 영역이 있으면 그 안의 그림만 떼어서 옮긴다 (클튜처럼)
+      if (area.cur && transformArea()) {
+        const nf = sel.floating!;
+        drag.current = {
+          type: 'transform',
+          mode: 'move',
+          layerId: nf.layerId,
+          frameIndex: nf.frameIndex,
+          kind: 'selection',
+          src: nf.piece,
+          t0: { ...nf.t },
+          t: { ...nf.t },
+          w: nf.piece.width,
+          h: nf.piece.height,
+          start: c,
+          startAngle: 0,
+          startDist: 1,
+        };
         return;
       }
       // 꾹 누르면 범위 지정, 바로 움직이면 이동
@@ -878,7 +935,8 @@ export function Viewport() {
     if (d.base) ctx.drawImage(d.base, 0, 0);
     ctx.globalAlpha = d.opacity;
     ctx.globalCompositeOperation = d.erase ? 'destination-out' : d.alphaLock ? 'source-atop' : 'source-over';
-    ctx.drawImage(d.stroke, 0, 0);
+    // 선택 영역이 있으면 그 안에만
+    ctx.drawImage(maskToArea(d.stroke), 0, 0);
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = 'source-over';
     const work = d.work;
@@ -993,7 +1051,14 @@ export function Viewport() {
       if (d.base) ctx.drawImage(d.base, 0, 0);
       ctx.globalAlpha = d.opacity;
       ctx.globalCompositeOperation = d.alphaLock ? 'source-atop' : 'source-over';
-      drawShape(ctx, d.kind, d.start, d.end, d.fill, d.color, d.size);
+      if (area.cur) {
+        // 선택 영역 안에만
+        const sb = shapeBuf(d.work.width, d.work.height);
+        const sc = ctx2d(sb);
+        sc.clearRect(0, 0, sb.width, sb.height);
+        drawShape(sc, d.kind, d.start, d.end, d.fill, d.color, d.size);
+        ctx.drawImage(maskToArea(sb), 0, 0);
+      } else drawShape(ctx, d.kind, d.start, d.end, d.fill, d.color, d.size);
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = 'source-over';
       const work = d.work;
@@ -1060,11 +1125,19 @@ export function Viewport() {
           b = outline[(i + 1) % outline.length];
         area += a.x * b.y - b.x * a.y;
       }
+      if (d.op) {
+        // 올가미 도구: 짧게 누르면 선택 해제, 아니면 영역 만들기/더하기/빼기
+        if (Math.abs(area) / 2 < 16) {
+          if (d.op === 'new') clearArea();
+        } else setArea(outline, d.op);
+        invalidate();
+        return;
+      }
       if (Math.abs(area) / 2 < 16) {
         invalidate();
         return;
       }
-      if (!makeSelection(d.layerId, d.frameIndex, outline)) s.toast('고른 곳에 그림이 없어요', 'error');
+      if (!makeSelection(d.layerId, d.frameIndex, [outline])) s.toast('고른 곳에 그림이 없어요', 'error');
       else s.toast('범위를 골랐어요 · 끌어서 옮기고, 바깥을 누르면 확정 (Esc 취소 · Delete 지우기)', 'success');
       invalidate();
       return;
@@ -1134,6 +1207,11 @@ export function Viewport() {
           ? 'move'
           : 'crosshair';
   const flipView = useEditor((s) => s.flipView);
+  const areaActive = useEditor((s) => s.areaActive);
+  useEffect(() => {
+    if (areaActive) schedule();
+  }, [areaActive]);
+  const playing = useEditor((s) => s.playing);
   const grid = useEditor((s) => s.grid);
 
   return (
@@ -1214,6 +1292,40 @@ export function Viewport() {
       {flipView && (
         <div className="stage-badge" style={{ top: 'auto', bottom: 14, left: 'auto', right: 14, transform: 'none' }}>
           <FlipHorizontal2 size={13} /> 좌우 반전 보기 중
+        </div>
+      )}
+      {areaActive && !playing && (
+        <div className="sel-launcher" ref={launcherRef} onPointerDown={(e) => e.stopPropagation()}>
+          <button onClick={clearArea} title="선택 해제 (Ctrl+D)">
+            <X size={14} /> 해제
+          </button>
+          <button onClick={invertArea} title="선택 반전 (Ctrl+Shift+I)">
+            <FlipVertical2 size={14} /> 반전
+          </button>
+          <span className="hud-sep" />
+          <button onClick={eraseArea} title="영역 안 지우기 (Delete)">
+            <Eraser size={14} /> 지우기
+          </button>
+          <button onClick={fillArea} title="지금 색으로 채우기">
+            <PaintBucket size={14} /> 채우기
+          </button>
+          <button onClick={() => areaToNewLayer(false)} title="복사해서 새 레이어로">
+            <Copy size={14} /> 복사
+          </button>
+          <button onClick={() => areaToNewLayer(true)} title="잘라서 새 레이어로">
+            <Scissors size={14} /> 잘라내기
+          </button>
+          <button
+            onClick={() => {
+              // 도구를 먼저 바꿔야 떼어 낸 그림이 바로 내려놓아지지 않는다
+              const st = useEditor.getState();
+              if (st.tool !== 'move' && st.tool !== 'select') st.set({ tool: 'select' });
+              transformArea();
+            }}
+            title="크기·회전·이동 (Ctrl+T)"
+          >
+            <MoveIcon size={14} /> 변형
+          </button>
         </div>
       )}
       {dropping && <div className="drop-hint">이미지나 음악 파일을 놓으면 가져와요</div>}

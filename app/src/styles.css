@@ -2116,3 +2116,39 @@ input[type='range']::-moz-range-thumb {
 .ref-props {
   background: rgba(120, 140, 180, 0.06);
 }
+
+/* ---- 선택 영역 런처 (클튜처럼 선택 영역 아래 메뉴) ---- */
+.sel-launcher {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 12px;
+  background: rgba(24, 26, 38, 0.94);
+  border: 1px solid rgba(139, 123, 255, 0.35);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  z-index: 5;
+  max-width: calc(100% - 24px);
+  overflow-x: auto;
+}
+.sel-launcher button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text, #e8e9f0);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.sel-launcher button:hover {
+  background: rgba(139, 123, 255, 0.18);
+}
