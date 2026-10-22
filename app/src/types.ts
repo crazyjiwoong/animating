@@ -187,7 +187,7 @@ export interface Project {
   updatedAt: number;
 }
 
-export type Tool = 'brush' | 'eraser' | 'shape' | 'move' | 'camera' | 'fill' | 'picker' | 'hand';
+export type Tool = 'brush' | 'eraser' | 'shape' | 'move' | 'select' | 'camera' | 'fill' | 'picker' | 'hand';
 
 export interface ProjectMeta {
   id: string;

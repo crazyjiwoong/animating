@@ -164,7 +164,10 @@ export function outlineNow(f: Floating): Pt[] {
 // 다른 프레임·레이어·도구로 바꾸면 자동으로 내려놓는다
 useEditor.subscribe((s, prev) => {
   if (!sel.floating) return;
-  if (s.frameIndex !== prev.frameIndex || s.layerId !== prev.layerId || s.tool !== prev.tool || s.playing) {
+  // 이동 도구 ↔ 올가미 도구 사이를 오갈 때는 떠 있는 범위를 그대로 둔다
+  const selTool = (t: string) => t === 'move' || t === 'select';
+  const toolChanged = s.tool !== prev.tool && !(selTool(s.tool) && selTool(prev.tool));
+  if (s.frameIndex !== prev.frameIndex || s.layerId !== prev.layerId || toolChanged || s.playing) {
     commitSelection();
     return;
   }

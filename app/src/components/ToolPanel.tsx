@@ -104,10 +104,11 @@ function SelectProps() {
   const selShape = useEditor((s) => s.selShape);
   const active = useEditor((s) => s.selectionActive);
   const set = useEditor((s) => s.set);
+  const direct = useEditor((s) => s.tool === 'select');
   return (
     <div className="sel-box">
       <div className="row" style={{ justifyContent: 'space-between' }}>
-        <span className="label">꾹 누르고 끌어서 범위 지정</span>
+        <span className="label">{direct ? '끌어서 범위 지정' : '꾹 누르고 끌어서 범위 지정'}</span>
       </div>
       <div className="seg" style={{ display: 'flex' }}>
         {([
@@ -134,7 +135,9 @@ function SelectProps() {
         </div>
       ) : (
         <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.5 }}>
-          잠깐 꾹 누른 채로 끌면 일부분만 골라 옮기거나 돌릴 수 있어요. 바로 끌면 레이어 전체가 움직여요.
+          {direct
+            ? '그림 둘레를 끌어서 감싸면 그 부분만 골라져요. 고른 뒤 안쪽을 끌면 이동, 모서리는 크기, 위 동그라미는 회전이에요.'
+            : '잠깐 꾹 누른 채로 끌면 일부분만 골라 옮기거나 돌릴 수 있어요. 바로 끌면 레이어 전체가 움직여요.'}
         </div>
       )}
     </div>
@@ -263,7 +266,7 @@ export function ToolPanel() {
           </>
         )}
         {tool === 'camera' && <CameraProps />}
-        {tool === 'move' && <SelectProps />}
+        {(tool === 'move' || tool === 'select') && <SelectProps />}
         {tool === 'move' && <MoveProps />}
         {tool === 'picker' && <div className="muted">캔버스를 눌러 색을 가져와요. 브러시 사용 중 <span className="kbd">Alt</span> 를 누르고 있어도 돼요.</div>}
         {tool === 'hand' && <div className="muted">드래그해서 화면을 옮겨요. 휠로 확대/축소, 두 손가락으로 핀치 줌.</div>}

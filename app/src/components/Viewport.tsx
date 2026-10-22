@@ -414,7 +414,7 @@ export function Viewport() {
       ctx.setLineDash([]);
       ctx.lineDashOffset = 0;
     };
-    if (s.tool === 'move' && !s.playing && !keys.current.space) {
+    if ((s.tool === 'move' || s.tool === 'select') && !s.playing && !keys.current.space) {
       if (d?.type === 'select') {
         ants(shapeOutline(d.shape, d.pts), d.shape !== 'lasso' || d.pts.length > 2);
         // 꾹 누른 자리 표시
@@ -429,7 +429,7 @@ export function Viewport() {
       let box: Box | null = null;
       if (f) box = { w: f.piece.width, h: f.piece.height, t: f.t };
       else if (d?.type === 'transform') box = { w: d.w, h: d.h, t: d.t };
-      else if (d?.type !== 'select') box = targetBox(p, s.frameIndex, s.layerId);
+      else if (d?.type !== 'select' && s.tool === 'move') box = targetBox(p, s.frameIndex, s.layerId);
       if (box) drawHandles(boxCorners(box).map(([x, y]) => toScreen(x, y)), '#8b7bff');
     }
 
@@ -738,7 +738,7 @@ export function Viewport() {
       return;
     }
 
-    if (tool === 'move') {
+    if (tool === 'move' || tool === 'select') {
       // 떠 있는 범위: 손잡이·안쪽이면 그 범위를 변형, 바깥이면 내려놓기
       const f = sel.floating;
       if (f) {
@@ -763,6 +763,12 @@ export function Viewport() {
           return;
         }
         commitSelection();
+      }
+      if (tool === 'select') {
+        // 올가미 도구: 누르자마자 범위 그리기
+        drag.current = { type: 'pending', downPt: pt, downC: c, timer: 0 };
+        startSelect();
+        return;
       }
       // 꾹 누르면 범위 지정, 바로 움직이면 이동
       const timer = window.setTimeout(startSelect, LONG_PRESS_MS);

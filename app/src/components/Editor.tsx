@@ -22,7 +22,7 @@ import { ShortcutsDialog } from './dialogs/ShortcutsDialog';
 import { ImageImportDialog } from './dialogs/ImageImportDialog';
 import type { Tool } from '../types';
 
-const TOOL_KEYS: Record<string, Tool> = { b: 'brush', e: 'eraser', u: 'shape', v: 'move', c: 'camera', g: 'fill', i: 'picker', h: 'hand' };
+const TOOL_KEYS: Record<string, Tool> = { b: 'brush', e: 'eraser', u: 'shape', v: 'move', l: 'select', c: 'camera', g: 'fill', i: 'picker', h: 'hand' };
 
 function usePlayback() {
   const playing = useEditor((s) => s.playing);
