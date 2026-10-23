@@ -75,6 +75,8 @@ export interface EditorState {
   selShape: SelShape;
   /** 재생할 때 카메라가 보는 화면으로 미리보기 */
   cameraView: boolean;
+  /** 카메라 무빙(시작 틀 → 끝 틀) 만드는 중 */
+  camPan: CamPan | null;
   /** 범위를 지정해 떠 있는 그림이 있는지 (화면 표시용) */
   selectionActive: boolean;
   /** 선택 영역(클튜 올가미처럼 그림은 그대로, 영역만)이 있는지 */
@@ -135,6 +137,8 @@ export interface EditorState {
   setCameraKey: (frameIndex: number, v: Partial<Omit<CameraKey, 'frameId'>>, key?: string) => void;
   deleteCameraKey: (frameIndex: number) => void;
   updateCamera: (patch: Partial<Camera>, key?: string) => void;
+  /** 카메라 무빙 초안을 키 두 개로 만든다 (모자란 프레임은 늘림) */
+  applyCameraPan: () => void;
   setExposure: (layerId: string, start: number, end: number, length: number, mode?: 'ripple' | 'overwrite') => void;
   splitRun: (layerId: string, frameIndex: number) => void;
   setTransform: (frameIndex: number, layerId: string, t: Partial<Transform>, key?: string) => void;
@@ -157,6 +161,29 @@ export interface EditorState {
 }
 
 const HISTORY_LIMIT = 60;
+
+/** 카메라 무빙 초안: 시작 틀에서 끝 틀까지 */
+export interface CamPan {
+  from: { x: number; y: number; zoom: number; rotation: number };
+  to: { x: number; y: number; zoom: number; rotation: number };
+  /** 무빙이 시작되는 프레임 (0부터) */
+  startFrame: number;
+  /** 속도로 정할지 시간으로 정할지 */
+  by: 'speed' | 'time';
+  /** 1초에 움직이는 거리 (캔버스 px) */
+  speed: number;
+  /** 걸리는 시간 (초) */
+  seconds: number;
+  ease: 'smooth' | 'linear';
+}
+
+/** 무빙에 걸리는 프레임 수 */
+export function panFrames(d: CamPan, fps: number) {
+  const dist = Math.hypot(d.to.x - d.from.x, d.to.y - d.from.y);
+  // 위치가 거의 같으면(확대·회전만) 시간으로
+  const sec = d.by === 'speed' && dist >= 1 ? dist / Math.max(1, d.speed) : d.seconds;
+  return Math.max(1, Math.round(sec * fps));
+}
 
 export function makeLayer(kind: LayerKind, name: string, index: number): Layer {
   return {
@@ -245,6 +272,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   shape: { kind: 'rect', fill: false },
   selShape: 'lasso',
   cameraView: true,
+  camPan: null,
   selectionActive: false,
   areaActive: false,
   selMode: 'new',
@@ -627,6 +655,33 @@ export const useEditor = create<EditorState>((set, get) => ({
     s.commit('카메라 키 삭제', (p) => ({ camera: { ...p.camera!, keys: p.camera!.keys.filter((k) => k.frameId !== f.id) } }));
   },
 
+  applyCameraPan: () => {
+    const s = get();
+    const p = s.project!;
+    const d = s.camPan;
+    if (!d) return;
+    const len = panFrames(d, p.fps);
+    const start = Math.min(d.startFrame, p.frames.length - 1);
+    const end = start + len;
+    // 늘어나는 프레임은 마지막 그림을 그대로 이어서 보여 준다 (같은 그림 위로 카메라가 지나가도록)
+    const lastCels = p.frames[p.frames.length - 1].cels;
+    const add = Array.from({ length: Math.max(0, end + 1 - p.frames.length) }, () => ({ id: uid('f_'), cels: { ...lastCels } }));
+    const frames = add.length ? [...p.frames, ...add] : p.frames;
+    const sId = frames[start].id,
+      eId = frames[end].id;
+    const between = new Set(frames.slice(start, end + 1).map((f) => f.id));
+    const cam = p.camera ?? defaultCamera();
+    const keys = [
+      ...cam.keys.filter((k) => !between.has(k.frameId)),
+      { frameId: sId, ...d.from, ease: d.ease },
+      // 끝 키 다음 구간은 원래 설정대로
+      { frameId: eId, ...d.to },
+    ];
+    s.commit('카메라 무빙', () => ({ frames, camera: { ...cam, enabled: true, keys } }));
+    set({ camPan: null, frameIndex: start });
+    s.toast(`${start + 1}~${end + 1}프레임 카메라 무빙을 만들었어요${add.length ? ` · 프레임 ${add.length}개 추가` : ''} · ▶ 재생해서 확인하세요`, 'success');
+  },
+
   updateCamera: (patch, key) => {
     get().commit('카메라 설정', (p) => ({ camera: { ...(p.camera ?? defaultCamera()), ...patch } }), key ? { key } : undefined);
   },
@@ -911,4 +966,9 @@ useEditor.subscribe((s, prev) => {
       /* noop */
     }
   }, 400);
+});
+
+// 다른 작품을 열면 만들던 카메라 무빙 초안은 버린다
+useEditor.subscribe((s, prev) => {
+  if (s.camPan && s.project?.id !== prev.project?.id) useEditor.setState({ camPan: null });
 });

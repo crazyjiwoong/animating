@@ -1,9 +1,9 @@
-import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, FlipHorizontal2, FlipVertical2, RotateCcw, Crosshair, History, ImageUp, Slash, Square, Circle, Lasso, Check, Trash2, Plus, Maximize } from 'lucide-react';
+import { ArrowLeftRight, Clapperboard, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, FlipHorizontal2, FlipVertical2, RotateCcw, Crosshair, History, ImageUp, Slash, Square, Circle, Lasso, Check, Trash2, Plus, Maximize } from 'lucide-react';
 import { cameraAt, cameraKeysByIndex } from '../lib/motion';
 import { cancelSelection, commitSelection, deleteSelection } from '../lib/selection';
 import { openFiles } from '../lib/platform';
 import { replaceCurrentImage } from '../lib/importers';
-import { useEditor, currentCel, currentLayer, type BrushSettings } from '../store/editor';
+import { useEditor, currentCel, currentLayer, panFrames, type BrushSettings } from '../store/editor';
 import { Slider, Toggle } from './ui';
 import { TOOLS } from './Toolbar';
 import { nudge } from '../lib/nudge';
@@ -63,6 +63,7 @@ function CameraProps() {
   return (
     <>
       <Toggle label="카메라 사용 (내보내기·재생에 적용)" on={!!cam?.enabled} onChange={(enabled) => st.updateCamera({ enabled })} />
+      <PanBox />
       <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.55 }}>
         캔버스의 주황색 틀이 영상에 보일 화면이에요. 틀을 끌어 옮기고, 모서리로 확대, 위 동그라미로 회전하면 이 프레임에 <b style={{ color: 'var(--text)' }}>키</b>가 생겨요. 키와 키 사이는 자동으로 이어져요.
       </div>
@@ -97,6 +98,102 @@ function CameraProps() {
       <Toggle label="재생할 때 카메라 화면으로 보기" on={cameraView} onChange={(cameraView) => st.set({ cameraView })} />
       <div className="muted" style={{ fontSize: 11.5 }}>키 {keyCount}개 · 타임라인 ‘카메라’ 줄의 ◆ 를 우클릭하면 지워요</div>
     </>
+  );
+}
+
+/** 카메라 무빙: 시작 틀 → 끝 틀을 정해진 속도로 */
+function PanBox() {
+  const p = useEditor((s) => s.project)!;
+  const fi = useEditor((s) => s.frameIndex);
+  const d = useEditor((s) => s.camPan);
+  const st = useEditor.getState();
+  if (!d) {
+    return (
+      <button
+        className="btn sm primary"
+        onClick={() => {
+          const from = cameraAt(p, fi);
+          // 처음엔 끝 틀을 오른쪽으로 조금 옮겨 둔다
+          const to = { ...from, x: Math.min(p.width, from.x + p.width * 0.35) };
+          st.set({ camPan: { from, to, startFrame: fi, by: 'speed', speed: 150, seconds: 3, ease: 'smooth' } });
+        }}
+        title="어디서부터 어디까지 카메라가 움직일지 정해요"
+      >
+        <Clapperboard size={13} /> 카메라 무빙 만들기 (A → B)
+      </button>
+    );
+  }
+  const up = (patch: Partial<typeof d>) => st.set({ camPan: { ...d, ...patch } });
+  const len = panFrames(d, p.fps);
+  const end = d.startFrame + len;
+  const dist = Math.hypot(d.to.x - d.from.x, d.to.y - d.from.y);
+  const bySpeed = d.by === 'speed' && dist >= 1;
+  return (
+    <div className="pan-box">
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <b style={{ fontSize: 12.5 }}>
+          <Clapperboard size={13} style={{ verticalAlign: -2 }} /> 카메라 무빙
+        </b>
+        <button className="icon-btn sm" onClick={() => up({ from: d.to, to: d.from })} title="시작과 끝 바꾸기">
+          <ArrowLeftRight size={13} />
+        </button>
+      </div>
+      <div className="muted" style={{ fontSize: 11.5, lineHeight: 1.5 }}>
+        캔버스의 <b style={{ color: '#3ddc97' }}>초록 틀(시작)</b>과 <b style={{ color: '#ffb340' }}>주황 틀(끝)</b>을 끌어서 처음 보일 곳과 마지막에 보일 곳을 정해요. 모서리로 확대, 위 동그라미로 회전.
+      </div>
+      <div className="row" style={{ gap: 6 }}>
+        <span className="label" style={{ width: 62 }}>시작 프레임</span>
+        <input className="input" type="number" min={1} max={p.frames.length} style={{ width: 64, height: 28 }} value={d.startFrame + 1} onChange={(e) => up({ startFrame: Math.min(p.frames.length - 1, Math.max(0, (Number(e.target.value) || 1) - 1)) })} />
+        <button className="btn sm ghost" onClick={() => up({ startFrame: fi })}>
+          지금 프레임
+        </button>
+      </div>
+      <div className="seg" style={{ display: 'flex' }}>
+        <button className={d.by === 'speed' ? 'on' : ''} style={{ flex: 1 }} onClick={() => up({ by: 'speed' })}>
+          속도로 정하기
+        </button>
+        <button className={d.by === 'time' ? 'on' : ''} style={{ flex: 1 }} onClick={() => up({ by: 'time' })}>
+          시간으로 정하기
+        </button>
+      </div>
+      {bySpeed ? (
+        <Slider
+          label="속도"
+          value={d.speed}
+          min={20}
+          max={1200}
+          step={10}
+          onChange={(speed) => up({ speed })}
+          format={(v) => `${v < 100 ? '아주 천천히' : v < 250 ? '천천히' : v < 600 ? '보통' : '빠르게'} · ${v}px/초`}
+        />
+      ) : (
+        <Slider label="걸리는 시간" value={d.seconds} min={0.5} max={20} step={0.5} onChange={(seconds) => up({ seconds })} format={(v) => `${v}초`} />
+      )}
+      {d.by === 'speed' && dist < 1 && <div className="muted" style={{ fontSize: 11 }}>위치가 같아서(확대·회전만) 시간으로 정해요</div>}
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <span className="label">움직임</span>
+        <div className="seg">
+          <button className={d.ease === 'smooth' ? 'on' : ''} onClick={() => up({ ease: 'smooth' })} title="천천히 출발해서 천천히 멈춤">
+            부드럽게
+          </button>
+          <button className={d.ease === 'linear' ? 'on' : ''} onClick={() => up({ ease: 'linear' })} title="처음부터 끝까지 같은 속도">
+            일정하게
+          </button>
+        </div>
+      </div>
+      <div className="pan-summary">
+        {d.startFrame + 1} → {end + 1}프레임 · {len}프레임 ({(len / p.fps).toFixed(1)}초)
+        {end >= p.frames.length && <span style={{ color: '#ffb340' }}> · 프레임 {end + 1 - p.frames.length}개를 늘려요</span>}
+      </div>
+      <div className="row" style={{ gap: 6 }}>
+        <button className="btn sm primary grow" onClick={() => st.applyCameraPan()}>
+          <Check size={13} /> 적용
+        </button>
+        <button className="btn sm" onClick={() => st.set({ camPan: null })}>
+          취소
+        </button>
+      </div>
+    </div>
   );
 }
 

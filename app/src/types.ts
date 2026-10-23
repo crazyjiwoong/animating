@@ -80,6 +80,8 @@ export interface CameraKey {
   /** 1 = 그대로, 2 = 2배 확대 */
   zoom: number;
   rotation: number;
+  /** 이 키에서 다음 키까지의 움직임 (없으면 카메라 전체 설정) */
+  ease?: 'smooth' | 'linear';
 }
 
 export interface Camera {

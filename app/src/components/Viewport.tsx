@@ -69,6 +69,11 @@ function onionCanvas(p: Project, i: number, cur: number, tint: string | null) {
 /** 캔버스 좌표 → 화면 좌표 (확대·회전·좌우 반전 반영) */
 const toScreen = toScreenPt;
 
+/** 카메라 시점 → 상자 */
+function viewBox(p: Project, c: { x: number; y: number; zoom: number; rotation: number }): Box {
+  return { w: p.width, h: p.height, t: { ...DEFAULT_T, x: c.x, y: c.y, scale: 1 / c.zoom, rotation: c.rotation } };
+}
+
 /** 카메라가 보는 영역 (캔버스 좌표의 상자) */
 function cameraBox(p: Project, i: number): Box {
   const c = cameraAt(p, i);
@@ -171,6 +176,8 @@ type Drag =
       layerId: string;
       frameIndex: number;
       kind: 'image' | 'raster' | 'selection' | 'camera';
+      /** 카메라 무빙의 시작 틀 / 끝 틀을 옮기는 중 */
+      pan?: 'from' | 'to';
       src: CanvasImageSource & { width: number; height: number };
       t0: Transform;
       t: Transform;
@@ -380,8 +387,47 @@ export function Viewport() {
       ctx.stroke();
     };
 
+    // 카메라 무빙: 시작 틀(초록) → 끝 틀(주황)
+    if (s.tool === 'camera' && !s.playing && s.camPan) {
+      const live2 = d?.type === 'transform' && d.kind === 'camera' && d.pan ? d : null;
+      const boxOf = (which: 'from' | 'to') => (live2?.pan === which ? { w: live2.w, h: live2.h, t: live2.t } : viewBox(p, s.camPan![which]));
+      const A = boxOf('from').t,
+        B = boxOf('to').t;
+      const [ax, ay] = toScreen(A.x, A.y),
+        [bx, by] = toScreen(B.x, B.y);
+      // 이동 방향 화살표
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([7, 6]);
+      ctx.beginPath();
+      ctx.moveTo(ax, ay);
+      ctx.lineTo(bx, by);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      const ang = Math.atan2(by - ay, bx - ax);
+      if (Math.hypot(bx - ax, by - ay) > 20) {
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.moveTo(bx, by);
+        ctx.lineTo(bx - 14 * Math.cos(ang - 0.4), by - 14 * Math.sin(ang - 0.4));
+        ctx.lineTo(bx - 14 * Math.cos(ang + 0.4), by - 14 * Math.sin(ang + 0.4));
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.restore();
+      (['from', 'to'] as const).forEach((which) => {
+        const pts = boxCorners(boxOf(which)).map(([x, y]) => toScreen(x, y));
+        const col = which === 'from' ? '#3ddc97' : '#ffb340';
+        drawHandles(pts, col);
+        ctx.font = '700 12px Pretendard Variable, sans-serif';
+        ctx.fillStyle = col;
+        ctx.fillText(which === 'from' ? '▶ 시작' : '■ 끝', pts[0][0] + 6, pts[0][1] - 8);
+      });
+    }
+
     // 카메라 틀 (카메라 도구)
-    if (s.tool === 'camera' && !s.playing) {
+    if (s.tool === 'camera' && !s.playing && !s.camPan) {
       const box = d?.type === 'transform' && d.kind === 'camera' ? { w: d.w, h: d.h, t: d.t } : cameraBox(p, s.frameIndex);
       const pts = boxCorners(box).map(([x, y]) => toScreen(x, y));
       // 바깥 어둡게
@@ -659,10 +705,25 @@ export function Viewport() {
     }
 
     if (tool === 'camera') {
-      const box = cameraBox(p, s.frameIndex);
-      const mode = hitBox(box, pt, c);
+      let box = cameraBox(p, s.frameIndex);
+      let mode = s.camPan ? null : hitBox(box, pt, c);
+      let pan: 'from' | 'to' | undefined;
+      if (s.camPan) {
+        // 끝 틀을 먼저 (보통 위에 그려짐)
+        for (const which of ['to', 'from'] as const) {
+          const b = viewBox(p, s.camPan[which]);
+          const m = hitBox(b, pt, c);
+          if (m) {
+            box = b;
+            mode = m;
+            pan = which;
+            break;
+          }
+        }
+      }
       if (!mode) return;
       drag.current = {
+        pan,
         type: 'transform',
         mode,
         layerId: '',
@@ -1148,7 +1209,9 @@ export function Viewport() {
     }
     if (d.type === 'transform' && d.kind === 'camera') {
       const moved = d.t.x !== d.t0.x || d.t.y !== d.t0.y || d.t.scale !== d.t0.scale || d.t.rotation !== d.t0.rotation;
-      if (moved) s.setCameraKey(d.frameIndex, { x: d.t.x, y: d.t.y, zoom: 1 / d.t.scale, rotation: d.t.rotation });
+      if (moved && d.pan && s.camPan) {
+        s.set({ camPan: { ...s.camPan, [d.pan]: { x: d.t.x, y: d.t.y, zoom: 1 / d.t.scale, rotation: d.t.rotation } } });
+      } else if (moved && !d.pan) s.setCameraKey(d.frameIndex, { x: d.t.x, y: d.t.y, zoom: 1 / d.t.scale, rotation: d.t.rotation });
       invalidate();
       return;
     }

@@ -217,7 +217,7 @@ export function cameraAt(p: Project, i: number, withShake = false): CamView {
       const a = keys[n - 1],
         b = keys[n];
       let t = (i - a.i) / (b.i - a.i);
-      if (p.camera!.ease === 'smooth') t = t * t * (3 - 2 * t);
+      if ((a.k.ease ?? p.camera!.ease) === 'smooth') t = t * t * (3 - 2 * t);
       const L = (x: number, y: number) => x + (y - x) * t;
       v = { x: L(a.k.x, b.k.x), y: L(a.k.y, b.k.y), zoom: L(a.k.zoom, b.k.zoom), rotation: L(a.k.rotation, b.k.rotation) };
     }

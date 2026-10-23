@@ -2152,3 +2152,21 @@ input[type='range']::-moz-range-thumb {
 .sel-launcher button:hover {
   background: rgba(139, 123, 255, 0.18);
 }
+
+/* ---- 카메라 무빙 ---- */
+.pan-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  background: rgba(61, 220, 151, 0.06);
+  border: 1px solid rgba(61, 220, 151, 0.3);
+}
+.pan-summary {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+}
